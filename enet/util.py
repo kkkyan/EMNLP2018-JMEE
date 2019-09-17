@@ -1,3 +1,4 @@
+import gc
 import json
 import math
 import sys
@@ -138,7 +139,7 @@ def add_tokens(words, y, y_, x_len, all_tokens, word_i2s, label_i2s):
 
 
 def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, hyps, device, word_i2s, label_i2s,
-                  role_i2s, maxnorm, weight, save_output):
+                  role_i2s, maxnorm, weight, save_output, back_step = 1):
     if need_backward:
         model.test_mode_off()
     else:
@@ -154,10 +155,15 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
     all_events = []
     all_events_ = []
 
+    # model = torch.nn.DataParallel(model, device_ids=[0,1])
+    
     cnt = 0
+    optimizer.zero_grad()
     for batch in data_iter:
-        if need_backward:
-            optimizer.zero_grad()
+        cnt += 1
+        # if need_backward:
+        #     if cnt % back_step == 0:
+        #         optimizer.zero_grad()
 
         words, x_len = batch.WORDS
         # lemmas, _ = batch.LEMMAS
@@ -205,19 +211,24 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
         all_y.extend(y)
         all_y_.extend(y__)
 
-        cnt += 1
         other_information = ""
 
         if need_backward:
-            loss.backward()
-            if 1e-6 < maxnorm and model.parameters_requires_grad_clipping() is not None:
-                torch.nn.utils.clip_grad_norm_(model.parameters_requires_grad_clipping(), maxnorm)
-
-            optimizer.step()
-            other_information = 'Iter[{}] loss: {:.6f} edP: {:.4f}% edR: {:.4f}% edF1: {:.4f}%'.format(cnt, loss.item(),
+            if cnt % back_step == 0:
+                loss.backward()
+                if 1e-6 < maxnorm and model.parameters_requires_grad_clipping() is not None:
+                    torch.nn.utils.clip_grad_norm_(model.parameters_requires_grad_clipping(), maxnorm)
+    
+                optimizer.step()
+                other_information = 'Iter[{}] loss: {:.6f} edP: {:.4f}% edR: {:.4f}% edF1: {:.4f}%'.format(cnt, loss.item(),
                                                                                                        bp * 100.0,
                                                                                                        br * 100.0,
                                                                                                        bf * 100.0)
+                optimizer.zero_grad()
+            else:
+                gc.collect()
+                other_information = "Iter[{}] gc collect".format(cnt)
+                
         progressbar(cnt, MAX_STEP, other_information)
         running_loss += loss.item()
 

@@ -39,9 +39,8 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                                                                      label_i2s=parser.label_i2s,
                                                                      role_i2s=parser.role_i2s,
                                                                      weight=parser.label_weight,
-                                                                     save_output=os.path.join(parser.out,
-                                                                                              "training_epoch_%d.txt" % (
-                                                                                                  i + 1)))
+                                                                     save_output=False,
+                                                                     back_step=parser.back_step)
         print("\nEpoch", i + 1, " training loss: ", training_loss,
               "\ntraining ed p: ", training_ed_p,
               " training ed r: ", training_ed_r,

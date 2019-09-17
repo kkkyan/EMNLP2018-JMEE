@@ -193,13 +193,14 @@ class ACE2005Dataset(Corpus):
         examples = []
 
         with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if len(line) == 0:
-                    continue
-                jl = json.loads(line, encoding="utf-8")
+                jl = json.load(f, encoding="utf-8")
                 for js in jl:
-                    ex = self.parse_sentence(js, fields)
+                    try:
+                        ex = self.parse_sentence(js, fields)
+                    except Exception:
+                        print(js)
+                        print(Exception)
+                        exit(-1)
                     if ex is not None:
                         examples.append(ex)
 

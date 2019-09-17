@@ -27,22 +27,26 @@ class EDModel(Model):
                                           embedding_matrix=embeddingMatrix,
                                           fine_tune=hyps["wemb_ft"],
                                           dropout=hyps["wemb_dp"],
-                                          device=device)
+                                          device=device
+                                          )
 
         # Positional Embedding Layer
         self.psembeddings = EmbeddingLayer(embedding_size=(hyps["psemb_size"], hyps["psemb_dim"]),
                                            dropout=hyps["psemb_dp"],
-                                           device=device)
+                                           device=device
+                                           )
 
         # POS-Tagging Embedding Layer
         self.pembeddings = EmbeddingLayer(embedding_size=(hyps["pemb_size"], hyps["pemb_dim"]),
                                           dropout=hyps["pemb_dp"],
-                                          device=device)
+                                          device=device
+                                          )
 
         # Entity Label Embedding Layer
         self.eembeddings = MultiLabelEmbeddingLayer(embedding_size=(hyps["eemb_size"], hyps["eemb_dim"]),
                                                     dropout=hyps["eemb_dp"],
-                                                    device=device)
+                                                    device=device
+                                                    )
 
         # Bi-LSTM Encoder
         self.bilstm = DynamicLSTM(input_size=hyps["wemb_dim"] +
@@ -170,6 +174,7 @@ class EDModel(Model):
                     entity_tensor = golden_entity_tensors[golden_entities[j]]
                     ae_hidden.append(torch.cat([event_tensor, entity_tensor]))  # (2 * d')
                     ae_logits_key.append((i, st, ed, trigger_type_str, e_st, e_ed, e_type_str))
+                    
         if len(ae_hidden) != 0:
             ae_hidden = self.ae_ol(torch.stack(ae_hidden, dim=0))
 

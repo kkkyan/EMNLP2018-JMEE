@@ -21,27 +21,28 @@ from enet.util import log
 class EERunner(object):
     def __init__(self):
         parser = argparse.ArgumentParser(description="neural networks trainer")
-        parser.add_argument("--test", help="validation set")
-        parser.add_argument("--train", help="training set", required=False)
-        parser.add_argument("--dev", help="development set", required=False)
-        parser.add_argument("--webd", help="word embedding", required=False)
+        parser.add_argument("--test", help="validation set", default="../../../ace-05-splits/test.json")
+        parser.add_argument("--train", help="training set", default="../../../ace-05-splits/train.json", required=False)
+        parser.add_argument("--dev", help="development set", required=False, default="../../../ace-05-splits/dev.json")
+        parser.add_argument("--webd", help="word embedding", required=False, default="../../../embedding/glove.6B.300d.txt")
 
-        parser.add_argument("--batch", help="batch size", default=128, type=int)
-        parser.add_argument("--epochs", help="n of epochs", default=sys.maxsize, type=int)
+        parser.add_argument("--batch", help="batch size", default=16, type=int)
+        parser.add_argument("--epochs", help="n of epochs", default=99999, type=int)
 
         parser.add_argument("--seed", help="RNG seed", default=42, type=int)
-        parser.add_argument("--optimizer", default="adam")
-        parser.add_argument("--lr", default=1e-3, type=float)
+        parser.add_argument("--optimizer", default="adadelta")
+        parser.add_argument("--lr", default=0.5, type=float)
         parser.add_argument("--l2decay", default=0, type=float)
         parser.add_argument("--maxnorm", default=3, type=float)
 
         parser.add_argument("--out", help="output model path", default="out")
         parser.add_argument("--finetune", help="pretrained model path")
-        parser.add_argument("--earlystop", default=999999, type=int)
+        parser.add_argument("--earlystop", default=10, type=int)
         parser.add_argument("--restart", default=999999, type=int)
 
-        parser.add_argument("--device", default="cpu")
-        parser.add_argument("--hps", help="model hyperparams", required=False)
+        parser.add_argument("--device", default="cuda:0")
+        parser.add_argument("--back_step", default=1, type=int)
+        parser.add_argument("--hps", help="model hyperparams", required=False, default="{'wemb_dim': 300, 'wemb_ft': True, 'wemb_dp': 0.5, 'pemb_dim': 50, 'pemb_dp': 0.5, 'eemb_dim': 50, 'eemb_dp': 0.5, 'psemb_dim': 50, 'psemb_dp': 0.5, 'lstm_dim': 220, 'lstm_layers': 1, 'lstm_dp': 0, 'gcn_et': 3, 'gcn_use_bn': True, 'gcn_layers': 3, 'gcn_dp': 0.5, 'sa_dim': 300, 'use_highway': True, 'loss_alpha': 5}")
 
         self.a = parser.parse_args()
 
@@ -54,14 +55,17 @@ class EERunner(object):
 
     def load_model(self, fine_tune):
 
+        mymodel = None
         if fine_tune is None:
-            return EDModel(self.a.hps, self.get_device())
+            mymodel = EDModel(self.a.hps,self.get_device())
         else:
-            mymodel = EDModel(self.a.hps)
+            mymodel = EDModel(self.a.hps,self.get_device())
             mymodel.load_model(fine_tune)
-            mymodel.to(self.get_device())
-            return mymodel
 
+        mymodel.to(self.get_device())
+        
+        return mymodel
+    
     def get_tester(self, voc_i2s):
         return EDTester(voc_i2s)
 

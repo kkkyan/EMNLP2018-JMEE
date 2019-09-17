@@ -14,12 +14,12 @@ class Model(nn.Module):
         # for pickle
         return self.hyperparams
 
-    def __new__(cls, *args, **kwargs):
-        log('created %s with params %s' % (str(cls), str(args)))
-
-        instance = super(Model, cls).__new__(cls)
-        instance.__init__(*args, **kwargs)
-        return instance
+    # def __new__(cls, *args, **kwargs):
+    #     log('created %s with params %s' % (str(cls), str(args)))
+    #
+    #     instance = super(Model, cls).__new__(cls)
+    #     instance.__init__(*args, **kwargs)
+    #     return instance
 
     def test_mode_on(self):
         self.test_mode = True
