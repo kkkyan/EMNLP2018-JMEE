@@ -69,9 +69,12 @@ class EDTester():
                 # matched sentences
                 arguments = value
                 arguments_ = sent_[key]
-                for item, item_ in zip(arguments, arguments_):
-                    if item[2] == item_[2]:
-                        ct += 1
+
+                ct += len(set(arguments) & set(arguments_))  # count any argument in golden
+                
+                # for item, item_ in zip(arguments, arguments_):
+                #     if item[2] == item_[2]:
+                #         ct += 1
 
             for key, value in sent_.items():
                 p2 += len(value)

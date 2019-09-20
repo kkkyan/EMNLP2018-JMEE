@@ -71,9 +71,7 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                                                       label_i2s=parser.label_i2s,
                                                       role_i2s=parser.role_i2s,
                                                       weight=parser.label_weight,
-                                                      save_output=os.path.join(parser.out,
-                                                                               "dev_epoch_%d.txt" % (
-                                                                                   i + 1)))
+                                                      save_output=False)
         print("\nEpoch", i + 1, " dev loss: ", dev_loss,
               "\ndev ed p: ", dev_ed_p,
               " dev ed r: ", dev_ed_r,
@@ -104,9 +102,7 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                                                          label_i2s=parser.label_i2s,
                                                          role_i2s=parser.role_i2s,
                                                          weight=parser.label_weight,
-                                                         save_output=os.path.join(parser.out,
-                                                                                  "test_epoch_%d.txt" % (
-                                                                                      i + 1)))
+                                                         save_output=False)
         print("\nEpoch", i + 1, " test loss: ", test_loss,
               "\ntest ed p: ", test_ed_p,
               " test ed r: ", test_ed_r,

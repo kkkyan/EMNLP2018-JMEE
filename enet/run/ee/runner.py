@@ -53,11 +53,11 @@ class EERunner(object):
     def get_device(self):
         return self.device
 
-    def load_model(self, fine_tune):
+    def load_model(self, fine_tune, embeddingMatrix=None):
 
         mymodel = None
         if fine_tune is None:
-            mymodel = EDModel(self.a.hps,self.get_device())
+            mymodel = EDModel(self.a.hps,self.get_device(), embeddingMatrix)
         else:
             mymodel = EDModel(self.a.hps,self.get_device())
             mymodel.load_model(fine_tune)
@@ -183,7 +183,7 @@ class EERunner(object):
             model = self.load_model(self.a.finetune)
             log('model loaded, there are %i sets of params' % len(model.parameters_requires_grads()))
         else:
-            model = self.load_model(None)
+            model = self.load_model(None, WordsField.vocab.vectors)
             log('model created from scratch, there are %i sets of params' % len(model.parameters_requires_grads()))
 
         if self.a.optimizer == "adadelta":
