@@ -1,3 +1,5 @@
 *.pyc
 *.txt.pt
 .idea/
+ace2005-preprocessing/
+ace_2005_td_v7/
