@@ -147,15 +147,11 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
 
     running_loss = 0.0
 
-    print()
-
     all_tokens = []
     all_y = []
     all_y_ = []
     all_events = []
     all_events_ = []
-
-    # model = torch.nn.DataParallel(model, device_ids=[0,1])
     
     cnt = 0
     optimizer.zero_grad()
@@ -176,6 +172,7 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
         all_events.extend(events)
 
         SEQ_LEN = words.size()[1]
+        # adjm 是gcn 边
         adjm = torch.stack([torch.sparse.FloatTensor(torch.LongTensor(adjmm[0]),
                                                      torch.FloatTensor(adjmm[1]),
                                                      torch.Size([hyps["gcn_et"], SEQ_LEN, SEQ_LEN])).to_dense() for
@@ -188,7 +185,7 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
         y = y.to(device)
 
         y_, mask, ae_logits, ae_logits_key = model.forward(words, x_len, postags, entitylabels, adjm, entities,
-                                                           label_i2s)
+                                                           label_i2s, y)
         loss_ed = model.calculate_loss_ed(y_, mask, y, weight)
         if len(ae_logits_key) > 0:
             loss_ae, predicted_events = model.calculate_loss_ae(ae_logits, ae_logits_key, events, x_len.size()[0])

@@ -30,9 +30,10 @@ class EERunner(object):
         parser.add_argument("--epochs", help="n of epochs", default=99999, type=int)
 
         parser.add_argument("--seed", help="RNG seed", default=42, type=int)
+        parser.add_argument("--lb_weight", help="label weight", default=1, type=int)
         parser.add_argument("--optimizer", default="adadelta")
         parser.add_argument("--lr", default=0.5, type=float)
-        parser.add_argument("--l2decay", default=0, type=float)
+        parser.add_argument("--l2decay", default=1e-5, type=float)
         parser.add_argument("--maxnorm", default=3, type=float)
 
         parser.add_argument("--out", help="output model path", default="out")
@@ -80,14 +81,19 @@ class EERunner(object):
         if self.a.train:
             log('loading corpus from %s' % self.a.train)
 
+        # 词向量
         WordsField = Field(lower=True, include_lengths=True, batch_first=True)
+        # Pos
         PosTagsField = Field(lower=True, batch_first=True)
+        # EntityType
+        # MultiTokenField 是自己继承的
         EntityLabelsField = MultiTokenField(lower=False, batch_first=True)
         AdjMatrixField = SparseField(sequential=False, use_vocab=False, batch_first=True)
         LabelField = Field(lower=False, batch_first=True, pad_token=None, unk_token=None)
         EventsField = EventField(lower=False, batch_first=True)
         EntitiesField = EntityField(lower=False, batch_first=True, use_vocab=False)
 
+        # 这里的 fields 会自动映射 json 文件里的结果
         train_set = ACE2005Dataset(path=self.a.train,
                                    fields={"words": ("WORDS", WordsField),
                                            "pos-tags": ("POSTAGS", PosTagsField),
@@ -96,7 +102,8 @@ class EERunner(object):
                                            "golden-event-mentions": ("LABEL", LabelField),
                                            "all-events": ("EVENT", EventsField),
                                            "all-entities": ("ENTITIES", EntitiesField)},
-                                   keep_events=1)
+                                   keep_events=0)
+        
 
         dev_set = ACE2005Dataset(path=self.a.dev,
                                  fields={"words": ("WORDS", WordsField),
@@ -111,18 +118,18 @@ class EERunner(object):
         test_set = ACE2005Dataset(path=self.a.test,
                                   fields={"words": ("WORDS", WordsField),
                                           "pos-tags": ("POSTAGS", PosTagsField),
-                                          "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField),
-                                          "stanford-colcc": ("ADJM", AdjMatrixField),
-                                          "golden-event-mentions": ("LABEL", LabelField),
-                                          "all-events": ("EVENT", EventsField),
+                                          "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField), "stanford-colcc": ("ADJM", AdjMatrixField), "golden-event-mentions": ("LABEL", LabelField), "all-events": ("EVENT", EventsField),
                                           "all-entities": ("ENTITIES", EntitiesField)},
                                   keep_events=0)
 
+        # 构建词表
         if self.a.webd:
             pretrained_embedding = Vectors(self.a.webd, ".", unk_init=partial(torch.nn.init.uniform_, a=-0.15, b=0.15))
             WordsField.build_vocab(train_set.WORDS, dev_set.WORDS, vectors=pretrained_embedding)
         else:
             WordsField.build_vocab(train_set.WORDS, dev_set.WORDS)
+            
+        # label只包含了训练和验证集，从一定程度上增加了准确率的预测
         PosTagsField.build_vocab(train_set.POSTAGS, dev_set.POSTAGS)
         EntityLabelsField.build_vocab(train_set.ENTITYLABELS, dev_set.ENTITYLABELS)
         LabelField.build_vocab(train_set.LABEL, dev_set.LABEL)
@@ -159,23 +166,31 @@ class EERunner(object):
         print("test set length", len(test_set))
         print("test set 1/1 length", len(test_set1))
 
-        self.a.label_weight = torch.ones([len(LabelField.vocab.itos)]) * 5
+        # 这里给label加了权重
+        self.a.label_weight = torch.ones([len(LabelField.vocab.itos)]) * self.a.lb_weight
         self.a.label_weight[consts.O_LABEL] = 1.0
 
         self.a.hps = eval(self.a.hps)
+        # 词向量大小
         if "wemb_size" not in self.a.hps:
             self.a.hps["wemb_size"] = len(WordsField.vocab.itos)
+        # postag 大小
         if "pemb_size" not in self.a.hps:
             self.a.hps["pemb_size"] = len(PosTagsField.vocab.itos)
+        # position 大小
         if "psemb_size" not in self.a.hps:
             self.a.hps["psemb_size"] = max([train_set.longest(), dev_set.longest(), test_set.longest()]) + 2
+        # 实体类别大小
         if "eemb_size" not in self.a.hps:
             self.a.hps["eemb_size"] = len(EntityLabelsField.vocab.itos)
+        # 事件预测空间
         if "oc" not in self.a.hps:
             self.a.hps["oc"] = len(LabelField.vocab.itos)
+        # 事件种类空间
         if "ae_oc" not in self.a.hps:
             self.a.hps["ae_oc"] = len(EventsField.vocab.itos)
 
+        # 评测
         tester = self.get_tester(LabelField.vocab.itos)
 
         if self.a.finetune:
@@ -201,16 +216,16 @@ class EERunner(object):
 
         if not os.path.exists(self.a.out):
             os.mkdir(self.a.out)
-        with open(os.path.join(self.a.out, "word.vec"), "wb") as f:
-            pickle.dump(WordsField.vocab, f)
-        with open(os.path.join(self.a.out, "pos.vec"), "wb") as f:
-            pickle.dump(PosTagsField.vocab.stoi, f)
-        with open(os.path.join(self.a.out, "entity.vec"), "wb") as f:
-            pickle.dump(EntityLabelsField.vocab.stoi, f)
-        with open(os.path.join(self.a.out, "label.vec"), "wb") as f:
-            pickle.dump(LabelField.vocab.stoi, f)
-        with open(os.path.join(self.a.out, "role.vec"), "wb") as f:
-            pickle.dump(EventsField.vocab.stoi, f)
+        # with open(os.path.join(self.a.out, "word.vec"), "wb") as f:
+        #     pickle.dump(WordsField.vocab, f)
+        # with open(os.path.join(self.a.out, "pos.vec"), "wb") as f:
+        #     pickle.dump(PosTagsField.vocab.stoi, f)
+        # with open(os.path.join(self.a.out, "entity.vec"), "wb") as f:
+        #     pickle.dump(EntityLabelsField.vocab.stoi, f)
+        # with open(os.path.join(self.a.out, "label.vec"), "wb") as f:
+        #     pickle.dump(LabelField.vocab.stoi, f)
+        # with open(os.path.join(self.a.out, "role.vec"), "wb") as f:
+        #     pickle.dump(EventsField.vocab.stoi, f)
 
         log('init complete\n')
 

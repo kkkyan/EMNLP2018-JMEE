@@ -4,15 +4,16 @@ from math import ceil
 from torchtext.data import BucketIterator
 
 from enet.util import run_over_data
+import torch
 
 
 def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, tester, parser, other_testsets):
     # build batch on cpu
-    train_iter = BucketIterator(train_set, batch_size=parser.batch, train=False, shuffle=True, device=-1,
+    train_iter = BucketIterator(train_set, batch_size=parser.batch, train=False, shuffle=True, device=parser.device,
                                 sort_key=lambda x: len(x.POSTAGS))
-    dev_iter = BucketIterator(dev_set, batch_size=parser.batch, train=False, shuffle=True, device=-1,
+    dev_iter = BucketIterator(dev_set, batch_size=parser.batch, train=False, shuffle=True, device=parser.device,
                               sort_key=lambda x: len(x.POSTAGS))
-    test_iter = BucketIterator(test_set, batch_size=parser.batch, train=False, shuffle=True, device=-1,
+    test_iter = BucketIterator(test_set, batch_size=parser.batch, train=False, shuffle=True, device=parser.device,
                                sort_key=lambda x: len(x.POSTAGS))
 
     scores = 0.0
@@ -119,11 +120,15 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
         parser.writer.add_scalar('test/ae/f1', test_ae_f1, i)
 
         # Early Stop
-        if scores <= dev_ed_f1 + dev_ae_f1:
-            scores = dev_ed_f1 + dev_ae_f1
+        aim = dev_ed_f1 + dev_ae_f1
+        # aim = dev_ed_f1
+        if scores <= aim:
+            scores = aim
             # Move model parameters to CPU
             model.save_model(os.path.join(parser.out, "model.pt"))
-            print("Save CPU model at Epoch", i + 1)
+            print("Save CPU model at Epoch", i + 1, "score: ", scores)
+            print("dev ed F1:{}, ae F1: {}".format(dev_ed_f1, dev_ae_f1))
+            print("test ed F1:{}, ae F1: {}".format(test_ed_f1, test_ae_f1))
             now_bad = 0
         else:
             now_bad += 1
@@ -133,7 +138,7 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                     break
                 restart_used += 1
                 print("lr decays and best model is reloaded")
-                lr = lr * 0.1
+                lr = lr * 0.3
                 model.load_model(os.path.join(parser.out, "model.pt"))
                 optimizer = optimizer_constructor(lr=lr)
                 print("Restart in Epoch %d" % (i + 2))

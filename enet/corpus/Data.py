@@ -79,7 +79,8 @@ class MultiTokenField(Field):
         """Load a single example using this field, tokenizing if necessary.
 
         If the input is a Python 2 `str`, it will be converted to Unicode
-        first. If `sequential=True`, it will be tokenized. Then the input
+        first.
+        If `sequential=True`, it will be tokenized. Then the input
         will be optionally lowercased and passed to the user-provided
         `preprocessing` Pipeline."""
         if (six.PY2 and isinstance(x, six.string_types) and
