@@ -164,7 +164,6 @@ class EDModel(Model):
                 # Here we use golden event label
                 predicted_event_triggers = EDTester.merge_segments(
                     [label_i2s[x] for x in batch_golden_label[i][:x_len[i]].tolist()])
-                pass
             else:
                 predicted_event_triggers = EDTester.merge_segments(
                     [label_i2s[x] for x in trigger_outputs[i][:x_len[i]].tolist()])
@@ -244,8 +243,10 @@ class EDModel(Model):
         '''
         # print(batch_golden_events)
         golden_labels = []
+        # keys 是所有预测出来的argument
         for i, st, ed, event_type_str, e_st, e_ed, entity_type in keys:
             label = consts.ROLE_O_LABEL
+            # 如果预测出来的在golden event里
             if (st, ed, event_type_str) in batch_golden_events[i]:  # if event matched
                 for e_st_, e_ed_, r_label in batch_golden_events[i][(st, ed, event_type_str)]:
                     if e_st == e_st_ and e_ed == e_ed_:
