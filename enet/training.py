@@ -40,6 +40,7 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                                                                      label_i2s=parser.label_i2s,
                                                                      role_i2s=parser.role_i2s,
                                                                      weight=parser.label_weight,
+                                                                     ae_weight = parser.ae_label_weight,
                                                                      save_output=False,
                                                                      back_step=parser.back_step)
         print("\nEpoch", i + 1, " training loss: ", training_loss,
@@ -72,6 +73,7 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                                                       label_i2s=parser.label_i2s,
                                                       role_i2s=parser.role_i2s,
                                                       weight=parser.label_weight,
+                                                      ae_weight = parser.ae_label_weight,
                                                       save_output=False)
         print("\nEpoch", i + 1, " dev loss: ", dev_loss,
               "\ndev ed p: ", dev_ed_p,
@@ -103,6 +105,7 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                                                          label_i2s=parser.label_i2s,
                                                          role_i2s=parser.role_i2s,
                                                          weight=parser.label_weight,
+                                                         ae_weight = parser.ae_label_weight,
                                                          save_output=False)
         print("\nEpoch", i + 1, " test loss: ", test_loss,
               "\ntest ed p: ", test_ed_p,
@@ -138,7 +141,7 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                     break
                 restart_used += 1
                 print("lr decays and best model is reloaded")
-                lr = lr * 0.3
+                lr = lr * 0.7
                 model.load_model(os.path.join(parser.out, "model.pt"))
                 optimizer = optimizer_constructor(lr=lr)
                 print("Restart in Epoch %d" % (i + 2))
@@ -159,6 +162,7 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                                                      label_i2s=parser.label_i2s,
                                                      role_i2s=parser.role_i2s,
                                                      weight=parser.label_weight,
+                                                     ae_weight = parser.ae_label_weight,
                                                      save_output=os.path.join(parser.out, "test_final.txt"))
     print("\nFinally test loss: ", test_loss,
           "\ntest ed p: ", test_ed_p,

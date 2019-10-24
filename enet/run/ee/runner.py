@@ -31,6 +31,7 @@ class EERunner(object):
 
         parser.add_argument("--seed", help="RNG seed", default=42, type=int)
         parser.add_argument("--lb_weight", help="label weight", default=1, type=int)
+        parser.add_argument("--ae_lb_weight", help="label weight", default=5, type=int)
         parser.add_argument("--optimizer", default="adadelta")
         parser.add_argument("--lr", default=0.5, type=float)
         parser.add_argument("--l2decay", default=1e-5, type=float)
@@ -169,6 +170,8 @@ class EERunner(object):
         # 这里给label加了权重
         self.a.label_weight = torch.ones([len(LabelField.vocab.itos)]) * self.a.lb_weight
         self.a.label_weight[consts.O_LABEL] = 1.0
+        self.a.ae_label_weight = torch.ones([len(EventsField.vocab.itos)]) * self.a.ae_lb_weight
+        self.a.ae_label_weight[consts.ROLE_O_LABEL] = 1.0
 
         self.a.hps = eval(self.a.hps)
         # 词向量大小

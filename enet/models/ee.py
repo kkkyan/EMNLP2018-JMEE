@@ -167,11 +167,15 @@ class EDModel(Model):
             else:
                 predicted_event_triggers = EDTester.merge_segments(
                     [label_i2s[x] for x in trigger_outputs[i][:x_len[i]].tolist()])
+            
+            # 获取所有实体
             golden_entities = batch_golden_entities[i]
             golden_entity_tensors = {}
             for j in range(len(golden_entities)):
+                # 实体 start, end, type(type只有冒号前面部分)
                 e_st, e_ed, e_type_str = golden_entities[j]
                 try:
+                    # 生成这个实体的 tensor
                     golden_entity_tensors[golden_entities[j]] = xx[i, e_st:e_ed, ].mean(dim=0)  # (d')
                 except:
                     print(xx.size())
@@ -179,17 +183,22 @@ class EDModel(Model):
                     print(xx[i, e_st:e_ed, ].mean(dim=0).size())
                     exit(-1)
 
+            # 对每个 event 预测 argument
             for st in predicted_event_triggers:
+                # 获取event 的 st, end, type
                 ed, trigger_type_str = predicted_event_triggers[st]
+                # 获取 event 的 tensor
                 event_tensor = xx[i, st:ed, ].mean(dim=0)  # (d')
                 for j in range(len(golden_entities)):
+                    # 获取 entity
                     e_st, e_ed, e_type_str = golden_entities[j]
+                    # 获取 entity tensor
                     entity_tensor = golden_entity_tensors[golden_entities[j]]
                     ae_hidden.append(torch.cat([event_tensor, entity_tensor]))  # (2 * d')
                     ae_logits_key.append((i, st, ed, trigger_type_str, e_st, e_ed, e_type_str))
                     
         if len(ae_hidden) != 0:
-            ae_hidden = self.ae_ol(torch.stack(ae_hidden, dim=0))
+            ae_hidden = self.ae_ol(torch.stack(ae_hidden, dim=0))  # (B * M events * N entities, 2*d') -> (B * M * N, ae_oc)
 
         return logits, mask, ae_hidden, ae_logits_key
 
@@ -217,7 +226,7 @@ class EDModel(Model):
             loss = F.nll_loss(F.log_softmax(output_, dim=1), label_)
         return loss
 
-    def calculate_loss_ae(self, logits, keys, batch_golden_events, BATCH_SIZE):
+    def calculate_loss_ae(self, logits, keys, batch_golden_events, BATCH_SIZE, weight):
         '''
         Calculate loss for a batched output of ae
 
@@ -254,7 +263,11 @@ class EDModel(Model):
                         break
             golden_labels.append(label)
         golden_labels = torch.LongTensor(golden_labels).to(self.device)
-        loss = F.nll_loss(F.log_softmax(logits, dim=1), golden_labels)
+        if weight is not None:
+            weight = weight.to(self.device)
+            loss = F.nll_loss(F.log_softmax(logits, dim=1), golden_labels, weight=weight)
+        else:
+            loss = F.nll_loss(F.log_softmax(logits, dim=1), golden_labels)
 
         predicted_events = [{} for _ in range(BATCH_SIZE)]
         output_ae = torch.max(logits, 1)[1].view(golden_labels.size()).tolist()

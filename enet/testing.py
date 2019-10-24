@@ -24,39 +24,63 @@ class EDTester():
 
     @staticmethod
     def merge_segments(y):
+        '''
+        :param y:  y是一个BIO序列，标注了事件label
+        :return: segs: segs 是一个字典
+            key => event label start index
+            value => [ed, tt] : ed is event label end index, tt is the event type
+        '''
         segs = {}
         tt = ""
         st, ed = -1, -1
         for i, x in enumerate(y):
+            # B 开头
             if x.startswith("B-"):
                 if tt == "":
+                    # 获得事件类型
                     tt = x[2:]
+                    # 起始位置
                     st = i
                 else:
+                    # 这个 else 处理了两个 B- 连续的情况
                     ed = i
                     segs[st] = (ed, tt)
+                    # 新 B-
                     tt = x[2:]
                     st = i
+            # I 开头
             elif x.startswith("I-"):
+                # 预测出了 I- 却丢了 B-
                 if tt == "":
-                    y[i] = "B" + y[i][1:]
-                    tt = x[2:]
-                    st = i
+                    ''' 源代码， 把第一个I修订成B'''
+                    # y[i] = "B" + y[i][1:]
+                    # tt = x[2:]
+                    # st = i
+                    
+                    ''' 我的处理: 没有遵循BIO就跳过它 '''
+                    pass
                 else:
+                    # 这个 if 属于连续出现I但是后面的I和前面不同
                     if tt != x[2:]:
                         ed = i
                         segs[st] = (ed, tt)
-                        y[i] = "B" + y[i][1:]
-                        tt = x[2:]
-                        st = i
+                        ''' 源代码， 把第一个I修订成B'''
+                        # y[i] = "B" + y[i][1:]
+                        # tt = x[2:]
+                        # st = i
+                        
+                        ''' 我的处理: 没有遵循BIO就跳过它 '''
+            # O 开头
             else:
                 ed = i
                 if tt != "":
                     segs[st] = (ed, tt)
                 tt = ""
 
+        # 最后处理一下尾部, 可能有非O结尾的情况
         if tt != "":
             segs[st] = (len(y), tt)
+            
         return segs
 
     def calculate_sets(self, y, y_):

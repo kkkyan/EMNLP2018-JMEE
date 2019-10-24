@@ -139,7 +139,7 @@ def add_tokens(words, y, y_, x_len, all_tokens, word_i2s, label_i2s):
 
 
 def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, hyps, device, word_i2s, label_i2s,
-                  role_i2s, maxnorm, weight, save_output, back_step = 1):
+                  role_i2s, maxnorm, weight, ae_weight, save_output, back_step = 1):
     if need_backward:
         model.test_mode_off()
     else:
@@ -188,7 +188,7 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
                                                            label_i2s, y)
         loss_ed = model.calculate_loss_ed(y_, mask, y, weight)
         if len(ae_logits_key) > 0:
-            loss_ae, predicted_events = model.calculate_loss_ae(ae_logits, ae_logits_key, events, x_len.size()[0])
+            loss_ae, predicted_events = model.calculate_loss_ae(ae_logits, ae_logits_key, events, x_len.size()[0], ae_weight)
             loss = loss_ed + hyps["loss_alpha"] * loss_ae
         else:
             loss = loss_ed
