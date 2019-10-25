@@ -57,6 +57,7 @@ class EDModel(Model):
                                   num_layers=hyps["lstm_layers"],
                                   dropout=hyps["lstm_dp"],
                                   bidirectional=True,
+                                  use_bn = hyps["lstm_use_bn"],
                                   device=device)
 
         # GCN
@@ -176,7 +177,7 @@ class EDModel(Model):
                 e_st, e_ed, e_type_str = golden_entities[j]
                 try:
                     # 生成这个实体的 tensor
-                    golden_entity_tensors[golden_entities[j]] = xx[i, e_st:e_ed, ].mean(dim=0)  # (d')
+                    golden_entity_tensors[golden_entities[j]] = xx[i, e_st:e_ed, ].sum(dim=0)  # (d')
                 except:
                     print(xx.size())
                     print(e_st, e_ed)
@@ -188,7 +189,7 @@ class EDModel(Model):
                 # 获取event 的 st, end, type
                 ed, trigger_type_str = predicted_event_triggers[st]
                 # 获取 event 的 tensor
-                event_tensor = xx[i, st:ed, ].mean(dim=0)  # (d')
+                event_tensor = xx[i, st:ed, ].sum(dim=0)  # (d')
                 for j in range(len(golden_entities)):
                     # 获取 entity
                     e_st, e_ed, e_type_str = golden_entities[j]

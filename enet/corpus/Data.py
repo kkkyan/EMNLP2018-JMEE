@@ -173,7 +173,7 @@ class ACE2005Dataset(Corpus):
 
     sort_key = None
 
-    def __init__(self, path, fields, keep_events=None, only_keep=False, **kwargs):
+    def __init__(self, path, fields, min_len=None, keep_events=None, only_keep=False, **kwargs):
         '''
         Create a corpus given a path, field list, and a filter function.
 
@@ -188,6 +188,7 @@ class ACE2005Dataset(Corpus):
         '''
         self.keep_events = keep_events
         self.only_keep = only_keep
+        self.min_len = min_len
         super(ACE2005Dataset, self).__init__(path, fields, **kwargs)
 
     def parse_example(self, path, fields):
@@ -232,6 +233,10 @@ class ACE2005Dataset(Corpus):
             if self.only_keep and sentence.containsEvents != self.keep_events:
                 return None
             elif not self.only_keep and sentence.containsEvents < self.keep_events:
+                return None
+            elif self.min_len is not None and sentence.length < self.min_len:
+                if sentence.containsEvents != 0:
+                    return ex
                 return None
             else:
                 return ex

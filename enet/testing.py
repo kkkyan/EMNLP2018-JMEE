@@ -53,9 +53,9 @@ class EDTester():
                 # 预测出了 I- 却丢了 B-
                 if tt == "":
                     ''' 源代码， 把第一个I修订成B'''
-                    # y[i] = "B" + y[i][1:]
-                    # tt = x[2:]
-                    # st = i
+                    y[i] = "B" + y[i][1:]
+                    tt = x[2:]
+                    st = i
                     
                     ''' 我的处理: 没有遵循BIO就跳过它 '''
                     pass
@@ -65,9 +65,9 @@ class EDTester():
                         ed = i
                         segs[st] = (ed, tt)
                         ''' 源代码， 把第一个I修订成B'''
-                        # y[i] = "B" + y[i][1:]
-                        # tt = x[2:]
-                        # st = i
+                        y[i] = "B" + y[i][1:]
+                        tt = x[2:]
+                        st = i
                         
                         ''' 我的处理: 没有遵循BIO就跳过它 '''
             # O 开头
