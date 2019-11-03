@@ -44,7 +44,7 @@ class EERunner(object):
 
         parser.add_argument("--device", default="cuda:0")
         parser.add_argument("--back_step", default=1, type=int)
-        parser.add_argument("--hps", help="model hyperparams", required=False, default="{'wemb_dim': 300, 'wemb_ft': True, 'wemb_dp': 0.5, 'pemb_dim': 50, 'pemb_dp': 0.5, 'eemb_dim': 50, 'eemb_dp': 0.5, 'psemb_dim': 50, 'psemb_dp': 0.5, 'lstm_dim': 220, 'lstm_layers': 1, 'lstm_dp': 0, 'gcn_et': 3, 'gcn_use_bn': True, 'gcn_layers': 3, 'gcn_dp': 0.5, 'sa_dim': 300, 'use_highway': True, 'loss_alpha': 5}")
+        parser.add_argument("--hps", help="model hyperparams", required=False, default="{'wemb_dim': 300, 'wemb_ft': True, 'wemb_dp': 0.5, 'psemb_dim': 50, 'psemb_dp': 0.5, 'efemb_dim': 50, 'efemb_dp': 0.5, 'lstm_dim': 220, 'lstm_layers': 1, 'lstm_dp': 0, 'lstm_use_bn':True, 'gcn_et': 3, 'gcn_use_bn': True, 'gcn_layers': 0, 'gcn_dp': 0.5, 'sa_dim': 300, 'use_highway': True, 'loss_alpha': 5}")
 
         self.a = parser.parse_args()
 
@@ -95,7 +95,7 @@ class EERunner(object):
         EntitiesField = EntityField(lower=False, batch_first=True, use_vocab=False)
 
         # 这里的 fields 会自动映射 json 文件里的结果
-        train_set = ACE2005Dataset(path=self.a.train,
+        train_set = ACE2005Dataset(path=self.a.train, min_len=10,
                                    fields={"words": ("WORDS", WordsField),
                                            "pos-tags": ("POSTAGS", PosTagsField),
                                            "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField),
@@ -116,12 +116,6 @@ class EERunner(object):
                                          "all-entities": ("ENTITIES", EntitiesField)},
                                  keep_events=0)
 
-        test_set = ACE2005Dataset(path=self.a.test,
-                                  fields={"words": ("WORDS", WordsField),
-                                          "pos-tags": ("POSTAGS", PosTagsField),
-                                          "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField), "stanford-colcc": ("ADJM", AdjMatrixField), "golden-event-mentions": ("LABEL", LabelField), "all-events": ("EVENT", EventsField),
-                                          "all-entities": ("ENTITIES", EntitiesField)},
-                                  keep_events=0)
 
         # 构建词表
         if self.a.webd:
@@ -131,41 +125,54 @@ class EERunner(object):
             WordsField.build_vocab(train_set.WORDS, dev_set.WORDS)
             
         # label只包含了训练和验证集，从一定程度上增加了准确率的预测
-        PosTagsField.build_vocab(train_set.POSTAGS, dev_set.POSTAGS)
-        EntityLabelsField.build_vocab(train_set.ENTITYLABELS, dev_set.ENTITYLABELS)
-        LabelField.build_vocab(train_set.LABEL, dev_set.LABEL)
-        EventsField.build_vocab(train_set.EVENT, dev_set.EVENT)
+        # PosTagsField.build_vocab(train_set.POSTAGS, dev_set.POSTAGS)
+        # EntityLabelsField.build_vocab(train_set.ENTITYLABELS, dev_set.ENTITYLABELS)
+        # LabelField.build_vocab(train_set.LABEL, dev_set.LABEL)
+        # EventsField.build_vocab(train_set.EVENT, dev_set.EVENT)
+        
+        # 不要包含 dev
+        PosTagsField.build_vocab(train_set.POSTAGS)
+        EntityLabelsField.build_vocab(train_set.ENTITYLABELS)
+        LabelField.build_vocab(train_set.LABEL)
+        EventsField.build_vocab(train_set.EVENT)
 
         consts.O_LABEL = LabelField.vocab.stoi["O"]
         # print("O label is", consts.O_LABEL)
         consts.ROLE_O_LABEL = EventsField.vocab.stoi["OTHER"]
         # print("O label for AE is", consts.ROLE_O_LABEL)
-
-        dev_set1 = ACE2005Dataset(path=self.a.dev,
+        
+        test_set = ACE2005Dataset(path=self.a.test,
                                   fields={"words": ("WORDS", WordsField),
                                           "pos-tags": ("POSTAGS", PosTagsField),
-                                          "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField),
-                                          "stanford-colcc": ("ADJM", AdjMatrixField),
-                                          "golden-event-mentions": ("LABEL", LabelField),
-                                          "all-events": ("EVENT", EventsField),
+                                          "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField), "stanford-colcc": ("ADJM", AdjMatrixField), "golden-event-mentions": ("LABEL", LabelField), "all-events": ("EVENT", EventsField),
                                           "all-entities": ("ENTITIES", EntitiesField)},
-                                  keep_events=1, only_keep=True)
+                                  keep_events=0)
 
-        test_set1 = ACE2005Dataset(path=self.a.test,
-                                   fields={"words": ("WORDS", WordsField),
-                                           "pos-tags": ("POSTAGS", PosTagsField),
-                                           "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField),
-                                           "stanford-colcc": ("ADJM", AdjMatrixField),
-                                           "golden-event-mentions": ("LABEL", LabelField),
-                                           "all-events": ("EVENT", EventsField),
-                                           "all-entities": ("ENTITIES", EntitiesField)},
-                                   keep_events=1, only_keep=True)
+        # dev_set1 = ACE2005Dataset(path=self.a.dev,
+        #                           fields={"words": ("WORDS", WordsField),
+        #                                   "pos-tags": ("POSTAGS", PosTagsField),
+        #                                   "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField),
+        #                                   "stanford-colcc": ("ADJM", AdjMatrixField),
+        #                                   "golden-event-mentions": ("LABEL", LabelField),
+        #                                   "all-events": ("EVENT", EventsField),
+        #                                   "all-entities": ("ENTITIES", EntitiesField)},
+        #                           keep_events=1, only_keep=True)
+        #
+        # test_set1 = ACE2005Dataset(path=self.a.test,
+        #                            fields={"words": ("WORDS", WordsField),
+        #                                    "pos-tags": ("POSTAGS", PosTagsField),
+        #                                    "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField),
+        #                                    "stanford-colcc": ("ADJM", AdjMatrixField),
+        #                                    "golden-event-mentions": ("LABEL", LabelField),
+        #                                    "all-events": ("EVENT", EventsField),
+        #                                    "all-entities": ("ENTITIES", EntitiesField)},
+        #                            keep_events=1, only_keep=True)
 
-        print("dev set length", len(dev_set))
-        print("dev set 1/1 length", len(dev_set1))
-
-        print("test set length", len(test_set))
-        print("test set 1/1 length", len(test_set1))
+        # print("dev set length", len(dev_set))
+        # print("dev set 1/1 length", len(dev_set1))
+        #
+        # print("test set length", len(test_set))
+        # print("test set 1/1 length", len(test_set1))
 
         # 这里给label加了权重
         self.a.label_weight = torch.ones([len(LabelField.vocab.itos)]) * self.a.lb_weight
@@ -177,15 +184,13 @@ class EERunner(object):
         # 词向量大小
         if "wemb_size" not in self.a.hps:
             self.a.hps["wemb_size"] = len(WordsField.vocab.itos)
-        # postag 大小
-        if "pemb_size" not in self.a.hps:
-            self.a.hps["pemb_size"] = len(PosTagsField.vocab.itos)
         # position 大小
         if "psemb_size" not in self.a.hps:
             self.a.hps["psemb_size"] = max([train_set.longest(), dev_set.longest(), test_set.longest()]) + 2
         # 实体类别大小
         if "eemb_size" not in self.a.hps:
-            self.a.hps["eemb_size"] = len(EntityLabelsField.vocab.itos)
+            self.a.hps["efemb_size"] = len(LabelField.vocab.itos)
+            
         # 事件预测空间
         if "oc" not in self.a.hps:
             self.a.hps["oc"] = len(LabelField.vocab.itos)
@@ -246,11 +251,7 @@ class EERunner(object):
             optimizer_constructor=optimizer_constructor,
             epochs=self.a.epochs,
             tester=tester,
-            parser=self.a,
-            other_testsets={
-                "dev 1/1": dev_set1,
-                "test 1/1": test_set1,
-            }
+            parser=self.a
         )
         log('Done!')
 

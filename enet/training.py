@@ -7,7 +7,7 @@ from enet.util import run_over_data
 import torch
 
 
-def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, tester, parser, other_testsets):
+def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, tester, parser, other_testsets = None):
     # build batch on cpu
     train_iter = BucketIterator(train_set, batch_size=parser.batch, train=False, shuffle=True, device=parser.device,
                                 sort_key=lambda x: len(x.POSTAGS))
@@ -171,6 +171,9 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
           "\ntest ae p: ", test_ae_p,
           " test ae r: ", test_ae_r,
           " test ae f1: ", test_ae_f1)
+    
+    if other_testsets is None:
+        return
 
     for name, additional_test_set in other_testsets.items():
         additional_test_iter = BucketIterator(additional_test_set, batch_size=parser.batch, train=False, shuffle=True,

@@ -5,7 +5,7 @@ import torch.nn as nn
 
 
 class DynamicLSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers=1, bias=True, batch_first=True, dropout=0,
+    def __init__(self, input_size, hidden_size, num_layers=1, bias=True, batch_first=True, dropout=0, use_bn = False,
                  bidirectional=False, device=torch.device("cpu")):
         """
         Dynamic LSTM which can hold variable length sequence, use like TensorFlow's RNN(input, length...).
@@ -26,6 +26,8 @@ class DynamicLSTM(nn.Module):
         self.batch_first = batch_first
         self.dropout = dropout
         self.bidirectional = bidirectional
+        self.use_bn = use_bn
+        self.bn = nn.BatchNorm1d(2 * hidden_size)
         self.LSTM = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
@@ -65,6 +67,7 @@ class DynamicLSTM(nn.Module):
         # 4. unsort h
         ht = torch.transpose(ht, 0, 1)[x_unsort_idx]
         ht = torch.transpose(ht, 0, 1)
+        
 
         if only_use_last_hidden_state:
             return ht
@@ -76,6 +79,12 @@ class DynamicLSTM(nn.Module):
             out = out[x_unsort_idx]
             ct = torch.transpose(ct, 0, 1)[x_unsort_idx]
             ct = torch.transpose(ct, 0, 1)
+            
+            if self.use_bn:
+                out = out.transpose(1, 2).contiguous()
+                out = self.bn(out)
+                out = out.transpose(1, 2).contiguous()
+                
             return out, (ht, ct)
 
 

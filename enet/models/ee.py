@@ -37,10 +37,22 @@ class EDModel(Model):
                                            )
 
         # Event Feature Embedding Layer
-        self.efembeddings = EmbeddingLayer(embedding_size=(hyps["ef_size"], hyps["ef_dim"]),
-                                          dropout=hyps["pemb_dp"],
+        self.efembeddings = EmbeddingLayer(embedding_size=(hyps["efemb_size"], hyps["efemb_dim"]),
+                                          dropout=hyps["efemb_dp"],
                                           device=device
                                           )
+        
+        x_in_dim = hyps["wemb_dim"] + 2 * hyps["psemb_dim"] + hyps["efemb_dim"]
+        # conv layer
+        self.conv = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv1d(in_channels=x_in_dim, out_channels=hyps["conv_dim"], kernel_size=3),
+                nn.ReLU(),
+                # 因为默认步长是1且没有padding，所以池化时的kernel_size就是Lout的维度。
+                # nn.MaxPool1d(kernel_size=max_seq_len-one+1)
+            )
+            for one in kernel_Size
+        ])
 
         # Output Linear
         self.ol = BottledXavierLinear(in_features=2 * hyps["lstm_dim"], out_features=hyps["oc"]).to(device=device)
@@ -90,13 +102,23 @@ class EDModel(Model):
 
         # 首先预测 trigger
         word_emb = self.wembeddings(word_sequence)
-        positional_sequences = self.get_sentence_positional_feature(BATCH_SIZE, SEQ_LEN)
+        # 候选词 position
+        positional_sequences = self.get_sentence_positional_feature(BATCH_SIZE, SEQ_LEN )
         
-        # 对每一个词进行预测
+        # Trigger Prediction
         for i in range(SEQ_LEN):
-            # encoding
+            # concat
+            # 预测trigger 的时候没有 event type feature, 候选词也只有一个
+            fill_zeros = torch.zeros(positional_sequences[i].size())
+            x_in = torch.cat([word_emb,
+                              self.psembeddings(positional_sequences[i].to(self.device)),
+                              self.psembeddings(fill_zeros.to(self.device)),
+                              self.efembeddings(fill_zeros.to(self.device))], 2)
+            
+            # conv
             x, _ = self.bilstm(torch.cat([word_emb, self.psembeddings(positional_sequences[i].to(self.device))], 2),
                                x_len)  # (batch_size, seq_len, d')
+            
             # gcns
             for i in range(self.hyperparams["gcn_layers"]):
                 if self.hyperparams["use_highway"]:
@@ -143,7 +165,7 @@ class EDModel(Model):
                 e_st, e_ed, e_type_str = golden_entities[j]
                 try:
                     # 生成这个实体的 tensor
-                    golden_entity_tensors[golden_entities[j]] = xx[i, e_st:e_ed, ].mean(dim=0)  # (d')
+                    golden_entity_tensors[golden_entities[j]] = xx[i, e_st:e_ed, ].sum(dim=0)  # (d')
                 except:
                     print(xx.size())
                     print(e_st, e_ed)
@@ -155,7 +177,7 @@ class EDModel(Model):
                 # 获取event 的 st, end, type
                 ed, trigger_type_str = predicted_event_triggers[st]
                 # 获取 event 的 tensor
-                event_tensor = xx[i, st:ed, ].mean(dim=0)  # (d')
+                event_tensor = xx[i, st:ed, ].sum(dim=0)  # (d')
                 for j in range(len(golden_entities)):
                     # 获取 entity
                     e_st, e_ed, e_type_str = golden_entities[j]

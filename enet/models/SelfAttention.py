@@ -60,7 +60,7 @@ class AttentionLayer(nn.Module):
 
 
 if __name__ == "__main__":
-    al = AttentionLayer(2, 3, return_sequences=True)
+    al = AttentionLayer(2, 3, return_sequences=False)
     x = torch.randn(5, 3, 2)
     print(x.size())
     mask = torch.ByteTensor([[1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 0], [1, 0, 0]])
