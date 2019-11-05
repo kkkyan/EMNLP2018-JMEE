@@ -22,37 +22,6 @@ class EDModel(Model):
         self.hyperparams = copy.deepcopy(hyps)
         self.device = device
 
-        # Word Embedding Layer
-        self.wembeddings = EmbeddingLayer(embedding_size=(hyps["wemb_size"], hyps["wemb_dim"]),
-                                          embedding_matrix=embeddingMatrix,
-                                          fine_tune=hyps["wemb_ft"],
-                                          dropout=hyps["wemb_dp"],
-                                          device=device
-                                          )
-
-        # Positional Embedding Layer
-        self.psembeddings = EmbeddingLayer(embedding_size=(hyps["psemb_size"], hyps["psemb_dim"]),
-                                           dropout=hyps["psemb_dp"],
-                                           device=device
-                                           )
-
-        # Event Feature Embedding Layer
-        self.efembeddings = EmbeddingLayer(embedding_size=(hyps["efemb_size"], hyps["efemb_dim"]),
-                                          dropout=hyps["efemb_dp"],
-                                          device=device
-                                          )
-        
-        x_in_dim = hyps["wemb_dim"] + 2 * hyps["psemb_dim"] + hyps["efemb_dim"]
-        # conv layer
-        self.conv = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv1d(in_channels=x_in_dim, out_channels=hyps["conv_dim"], kernel_size=3),
-                nn.ReLU(),
-                # 因为默认步长是1且没有padding，所以池化时的kernel_size就是Lout的维度。
-                # nn.MaxPool1d(kernel_size=max_seq_len-one+1)
-            )
-            for one in kernel_Size
-        ])
 
         # Output Linear
         self.ol = BottledXavierLinear(in_features=2 * hyps["lstm_dim"], out_features=hyps["oc"]).to(device=device)

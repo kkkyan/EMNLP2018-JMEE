@@ -10,11 +10,11 @@ import torch
 def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, tester, parser, other_testsets = None):
     # build batch on cpu
     train_iter = BucketIterator(train_set, batch_size=parser.batch, train=False, shuffle=True, device=parser.device,
-                                sort_key=lambda x: len(x.POSTAGS))
+                                sort_key=lambda x: len(x.WORDS))
     dev_iter = BucketIterator(dev_set, batch_size=parser.batch, train=False, shuffle=True, device=parser.device,
-                              sort_key=lambda x: len(x.POSTAGS))
+                              sort_key=lambda x: len(x.WORDS))
     test_iter = BucketIterator(test_set, batch_size=parser.batch, train=False, shuffle=True, device=parser.device,
-                               sort_key=lambda x: len(x.POSTAGS))
+                               sort_key=lambda x: len(x.WORDS))
 
     scores = 0.0
     now_bad = 0
@@ -40,9 +40,10 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                                                                      label_i2s=parser.label_i2s,
                                                                      role_i2s=parser.role_i2s,
                                                                      weight=parser.label_weight,
-                                                                     ae_weight = parser.ae_label_weight,
+                                                                     ae_weight=parser.ae_label_weight,
                                                                      save_output=False,
                                                                      back_step=parser.back_step)
+        
         print("\nEpoch", i + 1, " training loss: ", training_loss,
               "\ntraining ed p: ", training_ed_p,
               " training ed r: ", training_ed_r,

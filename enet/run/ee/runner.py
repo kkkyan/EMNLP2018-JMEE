@@ -16,6 +16,7 @@ from enet.models.ee import EDModel
 from enet.testing import EDTester
 from enet.training import train
 from enet.util import log
+from pytorch_pretrained_bert import BertTokenizer
 
 
 class EERunner(object):
@@ -82,24 +83,23 @@ class EERunner(object):
         if self.a.train:
             log('loading corpus from %s' % self.a.train)
 
-        # 词向量
-        WordsField = Field(lower=True, include_lengths=True, batch_first=True)
-        # Pos
-        PosTagsField = Field(lower=True, batch_first=True)
-        # EntityType
-        # MultiTokenField 是自己继承的
-        EntityLabelsField = MultiTokenField(lower=False, batch_first=True)
-        AdjMatrixField = SparseField(sequential=False, use_vocab=False, batch_first=True)
-        LabelField = Field(lower=False, batch_first=True, pad_token=None, unk_token=None)
+        def tokenize(text):
+            tokens = tokenizer.tokenize(text)
+            ids = tokenizer.convert_tokens_to_ids(tokens)
+            return ids
+        
+        tokenizer = BertTokenizer.from_pretrained("/home/yk/.pytorch_pretrained_bert/bert-base-uncased",
+                                                  never_split=["[CLS]", "[SEP]",  "[unused0]"])
+        WordsField = Field(lower=False, batch_first=True, include_lengths=True,
+                           tokenize=(lambda s: tokenize(s)), pad_token=0, use_vocab=False)
+        LabelField = Field(sequential=False, lower=False, batch_first=True, pad_token=None, unk_token=None)
         EventsField = EventField(lower=False, batch_first=True)
         EntitiesField = EntityField(lower=False, batch_first=True, use_vocab=False)
 
         # 这里的 fields 会自动映射 json 文件里的结果
         train_set = ACE2005Dataset(path=self.a.train, min_len=10,
                                    fields={"words": ("WORDS", WordsField),
-                                           "pos-tags": ("POSTAGS", PosTagsField),
-                                           "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField),
-                                           "stanford-colcc": ("ADJM", AdjMatrixField),
+                                           # "sentence": ("SENTENCE", SentenceField),
                                            "golden-event-mentions": ("LABEL", LabelField),
                                            "all-events": ("EVENT", EventsField),
                                            "all-entities": ("ENTITIES", EntitiesField)},
@@ -108,31 +108,14 @@ class EERunner(object):
 
         dev_set = ACE2005Dataset(path=self.a.dev,
                                  fields={"words": ("WORDS", WordsField),
-                                         "pos-tags": ("POSTAGS", PosTagsField),
-                                         "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField),
-                                         "stanford-colcc": ("ADJM", AdjMatrixField),
+                                         # "sentence": ("SENTENCE", SentenceField),
                                          "golden-event-mentions": ("LABEL", LabelField),
                                          "all-events": ("EVENT", EventsField),
                                          "all-entities": ("ENTITIES", EntitiesField)},
                                  keep_events=0)
 
-
-        # 构建词表
-        if self.a.webd:
-            pretrained_embedding = Vectors(self.a.webd, ".", unk_init=partial(torch.nn.init.uniform_, a=-0.15, b=0.15))
-            WordsField.build_vocab(train_set.WORDS, dev_set.WORDS, vectors=pretrained_embedding)
-        else:
-            WordsField.build_vocab(train_set.WORDS, dev_set.WORDS)
-            
-        # label只包含了训练和验证集，从一定程度上增加了准确率的预测
-        # PosTagsField.build_vocab(train_set.POSTAGS, dev_set.POSTAGS)
-        # EntityLabelsField.build_vocab(train_set.ENTITYLABELS, dev_set.ENTITYLABELS)
-        # LabelField.build_vocab(train_set.LABEL, dev_set.LABEL)
-        # EventsField.build_vocab(train_set.EVENT, dev_set.EVENT)
         
-        # 不要包含 dev
-        PosTagsField.build_vocab(train_set.POSTAGS)
-        EntityLabelsField.build_vocab(train_set.ENTITYLABELS)
+        # WordsField.build_vocab(tokenizer.vocab.keys())
         LabelField.build_vocab(train_set.LABEL)
         EventsField.build_vocab(train_set.EVENT)
 
@@ -143,36 +126,11 @@ class EERunner(object):
         
         test_set = ACE2005Dataset(path=self.a.test,
                                   fields={"words": ("WORDS", WordsField),
-                                          "pos-tags": ("POSTAGS", PosTagsField),
-                                          "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField), "stanford-colcc": ("ADJM", AdjMatrixField), "golden-event-mentions": ("LABEL", LabelField), "all-events": ("EVENT", EventsField),
+                                          # "sentence": ("SENTENCE", SentenceField),
+                                          "golden-event-mentions": ("LABEL", LabelField),
+                                          "all-events": ("EVENT", EventsField),
                                           "all-entities": ("ENTITIES", EntitiesField)},
                                   keep_events=0)
-
-        # dev_set1 = ACE2005Dataset(path=self.a.dev,
-        #                           fields={"words": ("WORDS", WordsField),
-        #                                   "pos-tags": ("POSTAGS", PosTagsField),
-        #                                   "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField),
-        #                                   "stanford-colcc": ("ADJM", AdjMatrixField),
-        #                                   "golden-event-mentions": ("LABEL", LabelField),
-        #                                   "all-events": ("EVENT", EventsField),
-        #                                   "all-entities": ("ENTITIES", EntitiesField)},
-        #                           keep_events=1, only_keep=True)
-        #
-        # test_set1 = ACE2005Dataset(path=self.a.test,
-        #                            fields={"words": ("WORDS", WordsField),
-        #                                    "pos-tags": ("POSTAGS", PosTagsField),
-        #                                    "golden-entity-mentions": ("ENTITYLABELS", EntityLabelsField),
-        #                                    "stanford-colcc": ("ADJM", AdjMatrixField),
-        #                                    "golden-event-mentions": ("LABEL", LabelField),
-        #                                    "all-events": ("EVENT", EventsField),
-        #                                    "all-entities": ("ENTITIES", EntitiesField)},
-        #                            keep_events=1, only_keep=True)
-
-        # print("dev set length", len(dev_set))
-        # print("dev set 1/1 length", len(dev_set1))
-        #
-        # print("test set length", len(test_set))
-        # print("test set 1/1 length", len(test_set1))
 
         # 这里给label加了权重
         self.a.label_weight = torch.ones([len(LabelField.vocab.itos)]) * self.a.lb_weight
@@ -181,23 +139,15 @@ class EERunner(object):
         self.a.ae_label_weight[consts.ROLE_O_LABEL] = 1.0
 
         self.a.hps = eval(self.a.hps)
+        
         # 词向量大小
-        if "wemb_size" not in self.a.hps:
-            self.a.hps["wemb_size"] = len(WordsField.vocab.itos)
-        # position 大小
-        if "psemb_size" not in self.a.hps:
-            self.a.hps["psemb_size"] = max([train_set.longest(), dev_set.longest(), test_set.longest()]) + 2
-        # 实体类别大小
-        if "eemb_size" not in self.a.hps:
-            self.a.hps["efemb_size"] = len(LabelField.vocab.itos)
-            
         # 事件预测空间
         if "oc" not in self.a.hps:
             self.a.hps["oc"] = len(LabelField.vocab.itos)
         # 事件种类空间
         if "ae_oc" not in self.a.hps:
             self.a.hps["ae_oc"] = len(EventsField.vocab.itos)
-
+        
         # 评测
         tester = self.get_tester(LabelField.vocab.itos)
 
@@ -206,7 +156,7 @@ class EERunner(object):
             model = self.load_model(self.a.finetune)
             log('model loaded, there are %i sets of params' % len(model.parameters_requires_grads()))
         else:
-            model = self.load_model(None, WordsField.vocab.vectors)
+            model = self.load_model(None)
             log('model created from scratch, there are %i sets of params' % len(model.parameters_requires_grads()))
 
         if self.a.optimizer == "adadelta":
@@ -237,7 +187,7 @@ class EERunner(object):
 
         log('init complete\n')
 
-        self.a.word_i2s = WordsField.vocab.itos
+        self.a.word_i2s = None
         self.a.label_i2s = LabelField.vocab.itos
         self.a.role_i2s = EventsField.vocab.itos
         writer = SummaryWriter(os.path.join(self.a.out, "exp"))

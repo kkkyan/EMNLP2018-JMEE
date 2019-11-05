@@ -147,41 +147,31 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
 
     running_loss = 0.0
 
-    all_tokens = []
-    all_y = []
-    all_y_ = []
+    e_y = []
+    e_y_ = []
+    ae_y = []
+    ae_y_= []
     all_events = []
     all_events_ = []
     
     cnt = 0
-    optimizer.zero_grad()
     for batch in data_iter:
+        optimizer.zero_grad()
         cnt += 1
-        # if need_backward:
-        #     if cnt % back_step == 0:
-        #         optimizer.zero_grad()
 
         words, x_len = batch.WORDS
-        # lemmas, _ = batch.LEMMAS
-        postags = batch.POSTAGS
-        entitylabels = batch.ENTITYLABELS
-        adjm = batch.ADJM
-        y = batch.LABEL
+        labels = batch.LABEL
+
+        BATCH = words.size()[0]
+        SEQ_LEN = words.size()[1]
         entities = batch.ENTITIES
+        # 获取所有 events
         events = batch.EVENT
         all_events.extend(events)
 
-        SEQ_LEN = words.size()[1]
-        # adjm 是gcn 边
-        adjm = torch.stack([torch.sparse.FloatTensor(torch.LongTensor(adjmm[0]),
-                                                     torch.FloatTensor(adjmm[1]),
-                                                     torch.Size([hyps["gcn_et"], SEQ_LEN, SEQ_LEN])).to_dense() for
-                            adjmm in adjm])
         words = words.to(device)
-        # lemmas = lemmas.to(device)
         x_len = x_len.to(device)
         postags = postags.to(device)
-        adjm = adjm.to(device)
         y = y.to(device)
 
         y_, mask, ae_logits, ae_logits_key = model.forward(words, x_len, postags, entitylabels, adjm, entities,

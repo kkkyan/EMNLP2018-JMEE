@@ -53,6 +53,7 @@ class EventField(Field):
                             arg.fields.items() if field is self]
             else:
                 sources.append(arg)
+                
         for data in sources:
             for x in data:
                 for key, value in x.items():
@@ -194,54 +195,107 @@ class ACE2005Dataset(Corpus):
     def parse_example(self, path, fields):
         examples = []
 
+        num_of_trigger_words_more_than_one = 0
+        no_event = 0
+        one_event = 0
+        more_event = 0
+        exs = None
         with open(path, "r", encoding="utf-8") as f:
                 jl = json.load(f, encoding="utf-8")
                 for js in jl:
+                    events = js["golden-event-mentions"]
+                    if len(events) != 0:
+                        if len(events) == 1:
+                            one_event += 1
+                        else:
+                            more_event += 1
+                        
+                        for e in events:
+                            if e["trigger"]["end"] - e["trigger"]["start"] != 1:
+                                num_of_trigger_words_more_than_one += 1
+                    else:
+                        no_event += 1
+                        
                     try:
-                        ex = self.parse_sentence(js, fields)
-                    except Exception:
-                        print(js)
-                        print(Exception)
+                        exs = self.parse_sentence(js, fields)
+                    except Exception as e:
+                        print("JSON_ERROR\n",js)
+                        print(e.message)
                         exit(-1)
-                    if ex is not None:
-                        examples.append(ex)
+                        
+                    if len(exs) != 0:
+                        examples += exs
 
+        print("-"*20)
+        print("Sentences:", len(jl))
+        print("trigger words length more than 1 :", num_of_trigger_words_more_than_one)
+        print("no event:", no_event)
+        print("1 event:", one_event)
+        print("1+ event:", more_event)
+        print("-"*20 + "\n")
+        
         return examples
 
     def parse_sentence(self, js, fields):
         WORDS = fields["words"]
-        POSTAGS = fields["pos-tags"]
+        # SENTENCE = fields["sentence"]
+        # POSTAGS = fields["pos-tags"]
         # LEMMAS = fields["lemma"]
-        ENTITYLABELS = fields["golden-entity-mentions"]
-        ADJMATRIX = fields["stanford-colcc"]
+        # ENTITYLABELS = fields["golden-entity-mentions"]
+        # ADJMATRIX = fields["stanford-colcc"]
         LABELS = fields["golden-event-mentions"]
         EVENTS = fields["all-events"]
         ENTITIES = fields["all-entities"]
 
         sentence = Sentence(json_content=js)
-        ex = Example()
-        setattr(ex, WORDS[0], WORDS[1].preprocess(sentence.wordList))
-        setattr(ex, POSTAGS[0], POSTAGS[1].preprocess(sentence.posLabelList))
-        # setattr(ex, LEMMAS[0], LEMMAS[1].preprocess(sentence.lemmaList))
-        setattr(ex, ENTITYLABELS[0], ENTITYLABELS[1].preprocess(sentence.entityLabelList))
-        setattr(ex, ADJMATRIX[0], (sentence.adjpos, sentence.adjv))
-        setattr(ex, LABELS[0], LABELS[1].preprocess(sentence.triggerLabelList))
-        setattr(ex, EVENTS[0], EVENTS[1].preprocess(sentence.events))
-        setattr(ex, ENTITIES[0], ENTITIES[1].preprocess(sentence.entities))
-
+        
+        exs = []
         if self.keep_events is not None:
+            # 事件不足
             if self.only_keep and sentence.containsEvents != self.keep_events:
-                return None
+                return exs
             elif not self.only_keep and sentence.containsEvents < self.keep_events:
-                return None
-            elif self.min_len is not None and sentence.length < self.min_len:
-                if sentence.containsEvents != 0:
-                    return ex
-                return None
-            else:
-                return ex
-        else:
-            return ex
+                return exs
+            elif self.min_len is not None and sentence.word_len < self.min_len:
+                if sentence.containsEvents == 0:
+                    return exs
+
+        # 对每一个 entity 做拼凑
+        for ent in sentence.entities:
+            ent_s, ent_e, _ = ent
+            # 实体
+            entity = " ".join(sentence.wordList[ent_s:ent_e])
+            # 检查实体在event里的状态
+            # 数组是因为一个实体可能在多个事件中存在
+            pairs = []
+            for e_k, e_v in sentence.events.items():
+                for ae in e_v:
+                    ae_s, ae_e, ae_label = ae
+                    # 如果实体对上了
+                    if ae_s == ent_s and ae_e == ent_e:
+                        # 事件
+                        e = sentence.wordList[e_k[0]]
+                        # 添加(事件，元素，标签对)
+                        pairs.append([e, entity, ae_label])
+            
+            # 实体不属于任何事件
+            if len(pairs) == 0:
+                pairs.append(["[unused0]", entity, "OTHER"])
+                
+            # 构造训练数据
+            for p in pairs:
+                trigger, entity, role = p
+                ex = Example()
+                text = " ".join([sentence.sentence, "[SEP]", trigger, "[SEP]", entity, "[SEP]"])
+            
+                setattr(ex, WORDS[0], WORDS[1].preprocess(text))
+                setattr(ex, LABELS[0], LABELS[1].preprocess(role))
+                setattr(ex, EVENTS[0], EVENTS[1].preprocess(sentence.events))
+                setattr(ex, ENTITIES[0], ENTITIES[1].preprocess(sentence.entities))
+                
+                exs.append(ex)
+                
+        return exs
 
     def longest(self):
-        return max([len(x.POSTAGS) for x in self.examples])
+        return max([len(x.WORDS) for x in self.examples])
