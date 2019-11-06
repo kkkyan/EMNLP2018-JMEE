@@ -26,8 +26,7 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
     for i in range(epochs):
         # Training Phrase
         print("Epoch", i + 1)
-        training_loss, training_ed_p, training_ed_r, training_ed_f1, \
-        training_ae_p, training_ae_r, training_ae_f1 = run_over_data(data_iter=train_iter,
+        training_loss, training_ed_p, training_ed_r, training_ed_f1 = run_over_data(data_iter=train_iter,
                                                                      optimizer=optimizer,
                                                                      model=model,
                                                                      need_backward=True,
@@ -47,21 +46,17 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
         print("\nEpoch", i + 1, " training loss: ", training_loss,
               "\ntraining ed p: ", training_ed_p,
               " training ed r: ", training_ed_r,
-              " training ed f1: ", training_ed_f1,
-              "\ntraining ae p: ", training_ae_p,
-              " training ae r: ", training_ae_r,
-              " training ae f1: ", training_ae_f1)
+              " training ed f1: ", training_ed_f1)
         parser.writer.add_scalar('train/loss', training_loss, i)
         parser.writer.add_scalar('train/ed/p', training_ed_p, i)
         parser.writer.add_scalar('train/ed/r', training_ed_r, i)
         parser.writer.add_scalar('train/ed/f1', training_ed_f1, i)
-        parser.writer.add_scalar('train/ae/p', training_ae_p, i)
-        parser.writer.add_scalar('train/ae/r', training_ae_r, i)
-        parser.writer.add_scalar('train/ae/f1', training_ae_f1, i)
+        # parser.writer.add_scalar('train/ae/p', training_ae_p, i)
+        # parser.writer.add_scalar('train/ae/r', training_ae_r, i)
+        # parser.writer.add_scalar('train/ae/f1', training_ae_f1, i)
 
         # Validation Phrase
-        dev_loss, dev_ed_p, dev_ed_r, dev_ed_f1, \
-        dev_ae_p, dev_ae_r, dev_ae_f1 = run_over_data(data_iter=dev_iter,
+        dev_loss, dev_ed_p, dev_ed_r, dev_ed_f1 = run_over_data(data_iter=dev_iter,
                                                       optimizer=optimizer,
                                                       model=model,
                                                       need_backward=False,
@@ -79,21 +74,14 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
         print("\nEpoch", i + 1, " dev loss: ", dev_loss,
               "\ndev ed p: ", dev_ed_p,
               " dev ed r: ", dev_ed_r,
-              " dev ed f1: ", dev_ed_f1,
-              "\ndev ae p: ", dev_ae_p,
-              " dev ae r: ", dev_ae_r,
-              " dev ae f1: ", dev_ae_f1)
+              " dev ed f1: ", dev_ed_f1)
         parser.writer.add_scalar('dev/loss', dev_loss, i)
         parser.writer.add_scalar('dev/ed/p', dev_ed_p, i)
         parser.writer.add_scalar('dev/ed/r', dev_ed_r, i)
         parser.writer.add_scalar('dev/ed/f1', dev_ed_f1, i)
-        parser.writer.add_scalar('dev/ae/p', dev_ae_p, i)
-        parser.writer.add_scalar('dev/ae/r', dev_ae_r, i)
-        parser.writer.add_scalar('dev/ae/f1', dev_ae_f1, i)
 
         # Testing Phrase
-        test_loss, test_ed_p, test_ed_r, test_ed_f1, \
-        test_ae_p, test_ae_r, test_ae_f1 = run_over_data(data_iter=test_iter,
+        test_loss, test_ed_p, test_ed_r, test_ed_f1 = run_over_data(data_iter=test_iter,
                                                          optimizer=optimizer,
                                                          model=model,
                                                          need_backward=False,
@@ -111,28 +99,23 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
         print("\nEpoch", i + 1, " test loss: ", test_loss,
               "\ntest ed p: ", test_ed_p,
               " test ed r: ", test_ed_r,
-              " test ed f1: ", test_ed_f1,
-              "\ntest ae p: ", test_ae_p,
-              " test ae r: ", test_ae_r,
-              " test ae f1: ", test_ae_f1)
+              " test ed f1: ", test_ed_f1)
+        
         parser.writer.add_scalar('test/loss', test_loss, i)
         parser.writer.add_scalar('test/ed/p', test_ed_p, i)
         parser.writer.add_scalar('test/ed/r', test_ed_r, i)
         parser.writer.add_scalar('test/ed/f1', test_ed_f1, i)
-        parser.writer.add_scalar('test/ae/p', test_ae_p, i)
-        parser.writer.add_scalar('test/ae/r', test_ae_r, i)
-        parser.writer.add_scalar('test/ae/f1', test_ae_f1, i)
 
         # Early Stop
-        aim = dev_ed_f1 + dev_ae_f1
+        aim = dev_ed_f1
         # aim = dev_ed_f1
         if scores <= aim:
             scores = aim
             # Move model parameters to CPU
             model.save_model(os.path.join(parser.out, "model.pt"))
             print("Save CPU model at Epoch", i + 1, "score: ", scores)
-            print("dev ed F1:{}, ae F1: {}".format(dev_ed_f1, dev_ae_f1))
-            print("test ed F1:{}, ae F1: {}".format(test_ed_f1, test_ae_f1))
+            # print("dev ed F1:{}, ae F1: {}".format(dev_ed_f1, dev_ae_f1))
+            # print("test ed F1:{}, ae F1: {}".format(test_ed_f1, test_ae_f1))
             now_bad = 0
         else:
             now_bad += 1
@@ -149,30 +132,30 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                 now_bad = 0
 
     # Testing Phrase
-    test_loss, test_ed_p, test_ed_r, test_ed_f1, \
-    test_ae_p, test_ae_r, test_ae_f1 = run_over_data(data_iter=test_iter,
-                                                     optimizer=optimizer,
-                                                     model=model,
-                                                     need_backward=False,
-                                                     MAX_STEP=ceil(len(test_set) / parser.batch),
-                                                     tester=tester,
-                                                     hyps=model.hyperparams,
-                                                     device=model.device,
-                                                     maxnorm=parser.maxnorm,
-                                                     word_i2s=parser.word_i2s,
-                                                     label_i2s=parser.label_i2s,
-                                                     role_i2s=parser.role_i2s,
-                                                     weight=parser.label_weight,
-                                                     ae_weight = parser.ae_label_weight,
-                                                     save_output=os.path.join(parser.out, "test_final.txt"))
-    print("\nFinally test loss: ", test_loss,
-          "\ntest ed p: ", test_ed_p,
-          " test ed r: ", test_ed_r,
-          " test ed f1: ", test_ed_f1,
-          "\ntest ae p: ", test_ae_p,
-          " test ae r: ", test_ae_r,
-          " test ae f1: ", test_ae_f1)
-    
+    # test_loss, test_ed_p, test_ed_r, test_ed_f1, \
+    # test_ae_p, test_ae_r, test_ae_f1 = run_over_data(data_iter=test_iter,
+    #                                                  optimizer=optimizer,
+    #                                                  model=model,
+    #                                                  need_backward=False,
+    #                                                  MAX_STEP=ceil(len(test_set) / parser.batch),
+    #                                                  tester=tester,
+    #                                                  hyps=model.hyperparams,
+    #                                                  device=model.device,
+    #                                                  maxnorm=parser.maxnorm,
+    #                                                  word_i2s=parser.word_i2s,
+    #                                                  label_i2s=parser.label_i2s,
+    #                                                  role_i2s=parser.role_i2s,
+    #                                                  weight=parser.label_weight,
+    #                                                  ae_weight = parser.ae_label_weight,
+    #                                                  save_output=os.path.join(parser.out, "test_final.txt"))
+    # print("\nFinally test loss: ", test_loss,
+    #       "\ntest ed p: ", test_ed_p,
+    #       " test ed r: ", test_ed_r,
+    #       " test ed f1: ", test_ed_f1,
+    #       "\ntest ae p: ", test_ae_p,
+    #       " test ae r: ", test_ae_r,
+    #       " test ae f1: ", test_ae_f1)
+    #
     if other_testsets is None:
         return
 

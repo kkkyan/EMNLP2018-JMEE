@@ -23,7 +23,7 @@ class EERunner(object):
     def __init__(self):
         parser = argparse.ArgumentParser(description="neural networks trainer")
         parser.add_argument("--test", help="validation set", default="../../../ace-05-splits/test.json")
-        parser.add_argument("--train", help="training set", default="../../../ace-05-splits/train.json", required=False)
+        parser.add_argument("--train", help="training set", default="../../../ace-05-splits/test.json", required=False)
         parser.add_argument("--dev", help="development set", required=False, default="../../../ace-05-splits/dev.json")
         parser.add_argument("--webd", help="word embedding", required=False, default="../../../embedding/glove.6B.300d.txt")
 
@@ -62,7 +62,7 @@ class EERunner(object):
         if fine_tune is None:
             mymodel = EDModel(self.a.hps,self.get_device(), embeddingMatrix)
         else:
-            mymodel = EDModel(self.a.hps,self.get_device())
+            mymodel = EDModel(self.a.hps, self.get_device())
             mymodel.load_model(fine_tune)
 
         mymodel.to(self.get_device())

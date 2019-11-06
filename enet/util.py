@@ -132,7 +132,7 @@ def add_tokens(words, y, y_, x_len, all_tokens, word_i2s, label_i2s):
         ys_ = ys_[:sl]
         tokens = []
         for w, yw, yw_ in zip(s, ys, ys_):
-            atoken = Token(word=word_i2s[w], posLabel="", entityLabel="", triggerLabel=label_i2s[yw], lemmaLabel="")
+            atoken = Token(word=word_i2s[w], triggerLabel=label_i2s[yw])
             atoken.addPredictedLabel(label_i2s[yw_])
             tokens.append(atoken)
         all_tokens.append(tokens)
@@ -147,10 +147,13 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
 
     running_loss = 0.0
 
+    # 事件标签
     e_y = []
     e_y_ = []
+    # argument label
     ae_y = []
     ae_y_= []
+    # 字典集
     all_events = []
     all_events_ = []
     
@@ -164,39 +167,33 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
 
         BATCH = words.size()[0]
         SEQ_LEN = words.size()[1]
-        entities = batch.ENTITIES
+        
         # 获取所有 events
-        events = batch.EVENT
-        all_events.extend(events)
+        # events = batch.EVENT
+        # all_events.extend(events)
 
         words = words.to(device)
         x_len = x_len.to(device)
-        postags = postags.to(device)
-        y = y.to(device)
+        labels = labels.to(device)
 
-        y_, mask, ae_logits, ae_logits_key = model.forward(words, x_len, postags, entitylabels, adjm, entities,
-                                                           label_i2s, y)
-        loss_ed = model.calculate_loss_ed(y_, mask, y, weight)
-        if len(ae_logits_key) > 0:
-            loss_ae, predicted_events = model.calculate_loss_ae(ae_logits, ae_logits_key, events, x_len.size()[0], ae_weight)
-            loss = loss_ed + hyps["loss_alpha"] * loss_ae
-        else:
-            loss = loss_ed
-            predicted_events = [{} for _ in range(x_len.size()[0])]
-        all_events_.extend(predicted_events)
+        # forward
+        y_, mask = model.forward(words, x_len, labels)
+        
+        # calculate loss
+        # Now we just have ar loss
+        loss = model.calculate_loss(y_, labels, weight)
 
-        y__ = torch.max(y_, 2)[1].view(y.size()).tolist()
-        y = y.tolist()
+        y__ = torch.max(y_, 1)[1].tolist()
+        y = labels.tolist()
 
-        add_tokens(words, y, y__, x_len, all_tokens, word_i2s, label_i2s)
+        # add_tokens(words, y, y__, x_len, all_tokens, word_i2s, label_i2s)
 
         # unpad
-        for i, ll in enumerate(x_len):
-            y[i] = y[i][:ll]
-            y__[i] = y__[i][:ll]
-        bp, br, bf = tester.calculate_report(y, y__, transform=True)
-        all_y.extend(y)
-        all_y_.extend(y__)
+        label_i = [x for x in range(len(label_i2s))]
+        p, r, f1, _ = tester.summary_report(y, y__, label_i2s)
+        
+        ae_y.extend(y)
+        ae_y_.extend(y__)
 
         other_information = ""
 
@@ -208,9 +205,9 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
     
                 optimizer.step()
                 other_information = 'Iter[{}] loss: {:.6f} edP: {:.4f}% edR: {:.4f}% edF1: {:.4f}%'.format(cnt, loss.item(),
-                                                                                                       bp * 100.0,
-                                                                                                       br * 100.0,
-                                                                                                       bf * 100.0)
+                                                                                                       p * 100.0,
+                                                                                                       r * 100.0,
+                                                                                                       f1 * 100.0)
                 optimizer.zero_grad()
             else:
                 gc.collect()
@@ -219,16 +216,17 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
         progressbar(cnt, MAX_STEP, other_information)
         running_loss += loss.item()
 
-    if save_output:
-        with open(save_output, "w", encoding="utf-8") as f:
-            for tokens in all_tokens:
-                for token in tokens:
-                    # to match conll2000 format
-                    f.write("%s %s %s\n" % (token.word, token.triggerLabel, token.predictedLabel))
-                f.write("\n")
+    # if save_output:
+    #     with open(save_output, "w", encoding="utf-8") as f:
+    #         for tokens in all_tokens:
+    #             for token in tokens:
+    #                 # to match conll2000 format
+    #                 f.write("%s %s %s\n" % (token.word, token.triggerLabel, token.predictedLabel))
+    #             f.write("\n")
 
     running_loss = running_loss / cnt
-    ep, er, ef = tester.calculate_report(all_y, all_y_, transform=False)
-    ap, ar, af = tester.calculate_sets(all_events, all_events_)
-    print()
-    return running_loss, ep, er, ef, ap, ar, af
+    pp, rr, ff, report = tester.summary_report(ae_y, ae_y_, label_i2s)
+    print(report)
+    # ap, ar, af = tester.calculate_sets(all_events, all_events_)
+    
+    return running_loss, pp, rr, ff

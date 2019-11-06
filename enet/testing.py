@@ -1,9 +1,21 @@
 from seqeval.metrics import f1_score, precision_score, recall_score
-
+from sklearn.metrics import classification_report
 
 class EDTester():
     def __init__(self, voc_i2s):
         self.voc_i2s = voc_i2s
+        
+    def summary_report(self, y, y_, label_i2s):
+        labels = [x for x in range(len(label_i2s))]
+        report = classification_report(y, y_, labels=labels, target_names=label_i2s, output_dict=True, digits=4)
+        report_string = classification_report(y, y_, labels=labels, target_names=label_i2s, output_dict=False, digits=4)
+        
+        p = report["weighted avg"]["precision"]
+        r = report["weighted avg"]["recall"]
+        f1 = report["weighted avg"]["f1-score"]
+        
+        return p, r, f1, report_string
+        
 
     def calculate_report(self, y, y_, transform=True):
         '''

@@ -14,7 +14,7 @@ from enet.models.SelfAttention import AttentionLayer
 from enet.models.model import Model
 from enet.testing import EDTester
 from enet.util import BottledXavierLinear
-
+from pytorch_pretrained_bert import BertModel
 
 class EDModel(Model):
     def __init__(self, hyps, device=torch.device("cpu"), embeddingMatrix=None):
@@ -22,12 +22,14 @@ class EDModel(Model):
         self.hyperparams = copy.deepcopy(hyps)
         self.device = device
 
+        # bert
+        self.bert = BertModel.from_pretrained("/home/yk/.pytorch_pretrained_bert/bert-base-uncased")
 
         # Output Linear
-        self.ol = BottledXavierLinear(in_features=2 * hyps["lstm_dim"], out_features=hyps["oc"]).to(device=device)
+        self.ol = BottledXavierLinear(in_features=4 * hyps["lstm_dim"], out_features=hyps["oc"]).to(device=device)
 
         # AE Output Linear
-        self.ae_ol = BottledXavierLinear(in_features=4 * hyps["lstm_dim"], out_features=hyps["ae_oc"]).to(device=device)
+        self.ae_ol = BottledXavierLinear(in_features=4 * 768, out_features=hyps["ae_oc"]).to(device=device)
 
         # Move to right device
         self.to(self.device)
@@ -39,24 +41,9 @@ class EDModel(Model):
                      for position in positions]  # list of tensors [BATCH_SIZE, SEQ_LEN]
         return positions
 
-    def forward(self, word_sequence, x_len, pos_tagging_sequence, entity_type_sequence, adj, batch_golden_entities,
-                label_i2s, batch_golden_label = None):
+    def forward(self, word_sequence, x_len, label):
         '''
-        extracting event triggers
-
-        :param word_sequence: LongTensor, padded word indices, (batch_size, seq_len)
-        :param lemma_sequence: LongTensor, padded lemma indices, (batch_size, seq_len)
-        :param x_len: numpy int64 array, indicating corresponding actual sequence length, (batch_size,)
-        :param pos_tagging_sequence: LongTensor, padded pos-tagging label indices, (batch_size, seq_len)
-        :param entity_type_sequence: list, padded entity label indices keep all possible labels, (batch_size, seq_len, variable_length>=1)
-        :param adj: sparse.FloatTensor, adjacent matrix for provided graph of padded sequences, (batch_size, edge_types, seq_len, seq_len)
-        :param batch_golden_entities: [[(st, ed, entity_type_str), ...], ...]
-        :param label_i2s:
-        :return:
-            logits: FloatTensor, output logits of ED, (batch_size, seq_len, output_class)
-            mask: ByteTensor, mask of input sequence, (batch_size, seq_len)
-            ae_hidden: FloatTensor, output logits of AE, (N, output_class) or [] indicating no need to predicting arguments
-            ae_logits_key: [], indicating how the big batch is constructed or []
+            extracting event triggers
         '''
         
         BATCH_SIZE = word_sequence.size()[0]
@@ -64,101 +51,120 @@ class EDModel(Model):
         
         # Merge embeddings
         mask = numpy.zeros(shape=word_sequence.size(), dtype=numpy.uint8)
+        segment = numpy.ones(shape=word_sequence.size(), dtype=numpy.uint8)
         for i in range(word_sequence.size()[0]):
             s_len = int(x_len[i])
             mask[i, 0:s_len] = numpy.ones(shape=(s_len), dtype=numpy.uint8)
-        mask = torch.ByteTensor(mask).to(self.device)
+        mask = torch.LongTensor(mask).to(self.device)
+        segment = torch.LongTensor(segment).to(self.device)
 
-        # 首先预测 trigger
-        word_emb = self.wembeddings(word_sequence)
-        # 候选词 position
-        positional_sequences = self.get_sentence_positional_feature(BATCH_SIZE, SEQ_LEN )
+        # feed into bert
+        if self.training:
+            self.bert.train()
+        else:
+            self.bert.eval()
         
-        # Trigger Prediction
-        for i in range(SEQ_LEN):
-            # concat
-            # 预测trigger 的时候没有 event type feature, 候选词也只有一个
-            fill_zeros = torch.zeros(positional_sequences[i].size())
-            x_in = torch.cat([word_emb,
-                              self.psembeddings(positional_sequences[i].to(self.device)),
-                              self.psembeddings(fill_zeros.to(self.device)),
-                              self.efembeddings(fill_zeros.to(self.device))], 2)
-            
-            # conv
-            x, _ = self.bilstm(torch.cat([word_emb, self.psembeddings(positional_sequences[i].to(self.device))], 2),
-                               x_len)  # (batch_size, seq_len, d')
-            
-            # gcns
-            for i in range(self.hyperparams["gcn_layers"]):
-                if self.hyperparams["use_highway"]:
-                    x = self.gcns[i](x, adj) + self.hws[i](x)  # (batch_size, seq_len, d')
-                else:
-                    x = self.gcns[i](x, adj)
-    
-            # self attention
-            xx.append(self.sa(x, mask))  # (batch_size, d')
+        bert_encode_layers, _ = self.bert(word_sequence, segment, mask)
         
+        # concat last 4 layers output
+        h = torch.cat(bert_encode_layers[-4:], 2) # (batch, 4*768)
+        cls = h[:, 0]
         
-        entity_label_emb = self.eembeddings(entity_type_sequence)
-        x_emb = torch.cat([word_emb, pos_emb, entity_label_emb], 2)  # (batch_size, seq_len, d)
+        # prediction
+        logits = self.ae_ol(cls)
+        
+        return logits, mask
+        
+        # # 首先预测 trigger
+        # word_emb = self.wembeddings(word_sequence)
+        # # 候选词 position
+        # positional_sequences = self.get_sentence_positional_feature(BATCH_SIZE, SEQ_LEN )
+        #
+        # # Trigger Prediction
+        # for i in range(SEQ_LEN):
+        #     # concat
+        #     # 预测trigger 的时候没有 event type feature, 候选词也只有一个
+        #     fill_zeros = torch.zeros(positional_sequences[i].size())
+        #     x_in = torch.cat([word_emb,
+        #                       self.psembeddings(positional_sequences[i].to(self.device)),
+        #                       self.psembeddings(fill_zeros.to(self.device)),
+        #                       self.efembeddings(fill_zeros.to(self.device))], 2)
+        #
+        #     # conv
+        #     x, _ = self.bilstm(torch.cat([word_emb, self.psembeddings(positional_sequences[i].to(self.device))], 2),
+        #                        x_len)  # (batch_size, seq_len, d')
+        #
+        #     # gcns
+        #     for i in range(self.hyperparams["gcn_layers"]):
+        #         if self.hyperparams["use_highway"]:
+        #             x = self.gcns[i](x, adj) + self.hws[i](x)  # (batch_size, seq_len, d')
+        #         else:
+        #             x = self.gcns[i](x, adj)
+        #
+        #     # self attention
+        #     xx.append(self.sa(x, mask))  # (batch_size, d')
+        #
+        #
+        # entity_label_emb = self.eembeddings(entity_type_sequence)
+        # x_emb = torch.cat([word_emb, pos_emb, entity_label_emb], 2)  # (batch_size, seq_len, d)
+        #
+        # xx = []
+        #
+        #
+        # # output linear
+        # xx = torch.stack(xx, dim=1)  # (batch_size, seq_len, d')
+        # logits = self.ol(xx)
+        #
+        # ae_logits_key = []
+        # ae_hidden = []
+        # trigger_outputs = torch.max(logits, 2)[1].view(logits.size()[:2])  # (batch_size, seq_len)
+        #
+        # #  在训练时，we should always feed gold event label to ensure that
+        # #            the model can really learn information from dataset rather
+        # #            than fake results generated by model prediction.
+        # for i in range(BATCH_SIZE):
+        #     predicted_event_triggers = None
+        #     if self.training:
+        #         # Here we use golden event label
+        #         predicted_event_triggers = EDTester.merge_segments(
+        #             [label_i2s[x] for x in batch_golden_label[i][:x_len[i]].tolist()])
+        #     else:
+        #         predicted_event_triggers = EDTester.merge_segments(
+        #             [label_i2s[x] for x in trigger_outputs[i][:x_len[i]].tolist()])
+        #
+        #     # 获取所有实体
+        #     golden_entities = batch_golden_entities[i]
+        #     golden_entity_tensors = {}
+        #     for j in range(len(golden_entities)):
+        #         # 实体 start, end, type(type只有冒号前面部分)
+        #         e_st, e_ed, e_type_str = golden_entities[j]
+        #         try:
+        #             # 生成这个实体的 tensor
+        #             golden_entity_tensors[golden_entities[j]] = xx[i, e_st:e_ed, ].sum(dim=0)  # (d')
+        #         except:
+        #             print(xx.size())
+        #             print(e_st, e_ed)
+        #             print(xx[i, e_st:e_ed, ].mean(dim=0).size())
+        #             exit(-1)
+        #
+        #     # 对每个 event 预测 argument
+        #     for st in predicted_event_triggers:
+        #         # 获取event 的 st, end, type
+        #         ed, trigger_type_str = predicted_event_triggers[st]
+        #         # 获取 event 的 tensor
+        #         event_tensor = xx[i, st:ed, ].sum(dim=0)  # (d')
+        #         for j in range(len(golden_entities)):
+        #             # 获取 entity
+        #             e_st, e_ed, e_type_str = golden_entities[j]
+        #             # 获取 entity tensor
+        #             entity_tensor = golden_entity_tensors[golden_entities[j]]
+        #             ae_hidden.append(torch.cat([event_tensor, entity_tensor]))  # (2 * d')
+        #             ae_logits_key.append((i, st, ed, trigger_type_str, e_st, e_ed, e_type_str))
+        #
+        # if len(ae_hidden) != 0:
+        #     ae_hidden = self.ae_ol(torch.stack(ae_hidden, dim=0))  # (B * M events * N entities, 2*d') -> (B * M * N, ae_oc)
 
-        xx = []
-        
-        
-        # output linear
-        xx = torch.stack(xx, dim=1)  # (batch_size, seq_len, d')
-        logits = self.ol(xx)
-
-        ae_logits_key = []
-        ae_hidden = []
-        trigger_outputs = torch.max(logits, 2)[1].view(logits.size()[:2])  # (batch_size, seq_len)
-        
-        #  在训练时，we should always feed gold event label to ensure that
-        #            the model can really learn information from dataset rather
-        #            than fake results generated by model prediction.
-        for i in range(BATCH_SIZE):
-            predicted_event_triggers = None
-            if self.training:
-                # Here we use golden event label
-                predicted_event_triggers = EDTester.merge_segments(
-                    [label_i2s[x] for x in batch_golden_label[i][:x_len[i]].tolist()])
-            else:
-                predicted_event_triggers = EDTester.merge_segments(
-                    [label_i2s[x] for x in trigger_outputs[i][:x_len[i]].tolist()])
-            
-            # 获取所有实体
-            golden_entities = batch_golden_entities[i]
-            golden_entity_tensors = {}
-            for j in range(len(golden_entities)):
-                # 实体 start, end, type(type只有冒号前面部分)
-                e_st, e_ed, e_type_str = golden_entities[j]
-                try:
-                    # 生成这个实体的 tensor
-                    golden_entity_tensors[golden_entities[j]] = xx[i, e_st:e_ed, ].sum(dim=0)  # (d')
-                except:
-                    print(xx.size())
-                    print(e_st, e_ed)
-                    print(xx[i, e_st:e_ed, ].mean(dim=0).size())
-                    exit(-1)
-
-            # 对每个 event 预测 argument
-            for st in predicted_event_triggers:
-                # 获取event 的 st, end, type
-                ed, trigger_type_str = predicted_event_triggers[st]
-                # 获取 event 的 tensor
-                event_tensor = xx[i, st:ed, ].sum(dim=0)  # (d')
-                for j in range(len(golden_entities)):
-                    # 获取 entity
-                    e_st, e_ed, e_type_str = golden_entities[j]
-                    # 获取 entity tensor
-                    entity_tensor = golden_entity_tensors[golden_entities[j]]
-                    ae_hidden.append(torch.cat([event_tensor, entity_tensor]))  # (2 * d')
-                    ae_logits_key.append((i, st, ed, trigger_type_str, e_st, e_ed, e_type_str))
-                    
-        if len(ae_hidden) != 0:
-            ae_hidden = self.ae_ol(torch.stack(ae_hidden, dim=0))  # (B * M events * N entities, 2*d') -> (B * M * N, ae_oc)
-
-        return logits, mask, ae_hidden, ae_logits_key
+        # return logits, mask, ae_hidden, ae_logits_key
 
     def calculate_loss_ed(self, logits, mask, label, weight):
         '''
@@ -236,3 +242,11 @@ class EDModel(Model):
             predicted_events[i][(st, ed, event_type_str)].append((e_st, e_ed, ae_label))
 
         return loss, predicted_events
+    
+    def calculate_loss(self, logits, label, weight):
+        if weight is not None:
+            weight = weight.to(self.device)
+            loss = F.nll_loss(F.log_softmax(logits), label, weight=weight)
+        else:
+            loss = F.nll_loss(F.log_softmax(logits), label)
+        return loss
