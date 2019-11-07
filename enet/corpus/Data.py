@@ -260,39 +260,37 @@ class ACE2005Dataset(Corpus):
                 if sentence.containsEvents == 0:
                     return exs
 
-        # 对每一个 entity 做拼凑
-        for ent in sentence.entities:
-            ent_s, ent_e, _ = ent
-            # 实体
-            entity = " ".join(sentence.wordList[ent_s:ent_e])
-            # 检查实体在event里的状态
-            # 数组是因为一个实体可能在多个事件中存在
-            pairs = []
-            for e_k, e_v in sentence.events.items():
-                for ae in e_v:
-                    ae_s, ae_e, ae_label = ae
-                    # 如果实体对上了
-                    if ae_s == ent_s and ae_e == ent_e:
-                        # 事件
-                        e = sentence.wordList[e_k[0]]
-                        # 添加(事件，元素，标签对)
-                        pairs.append([e, entity, ae_label])
+        # 现在只对ar做分类，如果没有事件就取消
+        if sentence.containsEvents == 0:
+            return exs
+
+        for e_k, e_v in sentence.events.items():
+            _ar_keys = {}
+            trigger = sentence.wordList[e_k[0]]
+            # 生成ar key表
+            for ae in e_v:
+                ae_s, ae_e, ae_label = ae
+                _ar_keys[(ae_s, ae_e)] = ae_label
             
-            # 实体不属于任何事件
-            if len(pairs) == 0:
-                pairs.append(["[unused0]", entity, "OTHER"])
+            # 遍历所有实体
+            for ent in sentence.entities:
+                ent_s, ent_e, _ = ent
+                # 实体
+                entity = " ".join(sentence.wordList[ent_s:ent_e])
+                role = "OTHER"
+                # 实体在列表里
+                if (ent_s, ent_e) in _ar_keys.keys():
+                    role = _ar_keys[(ent_s, ent_e)]
                 
-            # 构造训练数据
-            for p in pairs:
-                trigger, entity, role = p
+                # 添加进exs
                 ex = Example()
-                text = " ".join([sentence.sentence, "[SEP]", trigger, "[SEP]", entity, "[SEP]"])
-            
+                text = " ".join([sentence.sentence, trigger, "[SEP]", entity, "[SEP]"])
+                
                 setattr(ex, WORDS[0], WORDS[1].preprocess(text))
                 setattr(ex, LABELS[0], LABELS[1].preprocess(role))
                 setattr(ex, EVENTS[0], EVENTS[1].preprocess(sentence.events))
                 setattr(ex, ENTITIES[0], ENTITIES[1].preprocess(sentence.entities))
-                
+
                 exs.append(ex)
                 
         return exs
