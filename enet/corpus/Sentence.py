@@ -17,14 +17,16 @@ def pretty_str(a):
 
 class Sentence:
     def __init__(self, json_content, graph_field_name="stanford-colcc"):
-        # 原句子
-        self.sentence = "[CLS] " + " ".join(json_content["words"][:CUTOFF]) + " [SEP]"
         # words
         self.wordList = json_content["words"][:CUTOFF]
         self.word_len = len(self.wordList)
         
+        # 构造后的句子
+        self.sentence = " ".join(["[CLS]"] + self.wordList + ["[SEP]"])
+        
         # trigger 标签， 针对words，去除了连续词的可能性
         self.triggerLabelList = self.generateTriggerLabelList(json_content["golden-event-mentions"])
+        
         # entities
         self.entities = self.generateGoldenEntities(json_content["golden-entity-mentions"])
         # events
@@ -34,12 +36,11 @@ class Sentence:
         # token
         self.tokenList = self.makeTokenList()
         
-
     def generateGoldenEntities(self, entitiesJson):
         '''
         [(2, 3, "entity_type")]
         '''
-        golden_list = []
+        golden_list = {}
         for entityJson in entitiesJson:
             start = entityJson["start"]
             if start >= CUTOFF:
@@ -47,7 +48,12 @@ class Sentence:
                 
             end = min(entityJson["end"], CUTOFF)
             etype = entityJson["entity-type"].split(":")[0]
-            golden_list.append((start, end, etype))
+            entity = " ".join(self.wordList[start:end])
+            golden_list[entity] = {
+                "start": start,
+                "end": end,
+                "type": etype
+            }
         return golden_list
 
     def generateGoldenEvents(self, eventsJson):
@@ -71,13 +77,17 @@ class Sentence:
             for argumentJson in eventJson["arguments"]:
                 if argumentJson["start"] >= CUTOFF:
                     continue
-                value = (argumentJson["start"], min(argumentJson["end"], CUTOFF), pretty_str(argumentJson["role"]))
+                start = argumentJson["start"]
+                end = min(argumentJson["end"], CUTOFF)
+                entity = " ".join(self.wordList[start:end])
+                value = (start, end, entity, pretty_str(argumentJson["role"]))
                 values.append(value)
                 
             golden_dict[key] = list(sorted(values))
         return golden_dict
 
     def generateTriggerLabelList(self, triggerJsonList):
+        # 针对原来每个词做trigger
         triggerLabel = ["O" for _ in range(self.word_len)]
 
         def assignTriggerLabel(index, label):
@@ -89,6 +99,8 @@ class Sentence:
             triggerJson = eventJson["trigger"]
             start = triggerJson["start"]
             end = triggerJson["end"]
+            if end - start != 1:
+                continue
             etype = eventJson["event_type"]
             # 去除连续词
             if end - start != 1:

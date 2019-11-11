@@ -13,15 +13,21 @@ class SparseField(Field):
     def process(self, batch, device, train):
         return batch
 
-
 class EntityField(Field):
     '''
     Processing data each sentence has only one
 
-    [(2, 3, "entity_type")]
+    {
+        start: int
+        end: int
+        type: role_type
+    }
     '''
 
     def preprocess(self, x):
+        for ent in x.keys():
+            x[ent]["tokens"] = self.tokenize(ent)
+            
         return x
 
     def pad(self, minibatch):
@@ -30,13 +36,31 @@ class EntityField(Field):
     def numericalize(self, arr, device=None, train=True):
         return arr
 
+class WordField(Field):
+    '''
+    Processing data each sentence has only one
+    '''
+    
+    def preprocess(self, x):
+        dic = {}
+        dic["_LIST_"] = x
+        for i, w in enumerate(x):
+            dic[w] = self.tokenize(w)
+            
+        return dic
+    
+    def pad(self, minibatch):
+        return minibatch
+    
+    def numericalize(self, arr, device=None, train=True):
+        return arr
 
 class EventField(Field):
     '''
     Processing data each sentence has only one
 
     {
-            (2, 3, "event_type_str") --> [(1, 2, "role_type_str"), ...]
+            (2, 3, "event_type_str") --> [(1, 2, "entity", "role_type_str"), ...]
             ...
     }
     '''
@@ -58,7 +82,7 @@ class EventField(Field):
             for x in data:
                 for key, value in x.items():
                     for v in value:
-                        counter.update([v[2]])
+                        counter.update([v[3]])
         self.vocab = self.vocab_cls(counter, specials=["OTHER"], **kwargs)
 
     def pad(self, minibatch):
@@ -66,7 +90,7 @@ class EventField(Field):
 
     def numericalize(self, arr, device=None, train=True):
         if self.use_vocab:
-            arr = [{key: [(v[0], v[1], self.vocab.stoi[v[2]]) for v in value] for key, value in dd.items()} for dd in
+            arr = [{key: [(v[0], v[1], v[2], self.vocab.stoi[v[3]]) for v in value] for key, value in dd.items()} for dd in
                    arr]
         return arr
 
@@ -199,7 +223,6 @@ class ACE2005Dataset(Corpus):
         no_event = 0
         one_event = 0
         more_event = 0
-        exs = None
         with open(path, "r", encoding="utf-8") as f:
                 jl = json.load(f, encoding="utf-8")
                 for js in jl:
@@ -217,14 +240,14 @@ class ACE2005Dataset(Corpus):
                         no_event += 1
                         
                     try:
-                        exs = self.parse_sentence(js, fields)
+                        ex = self.parse_sentence(js, fields)
                     except Exception as e:
                         print("JSON_ERROR\n",js)
                         print(e.message)
                         exit(-1)
                         
-                    if len(exs) != 0:
-                        examples += exs
+                    if ex is not None:
+                        examples.append(ex)
 
         print("-"*20)
         print("Sentences:", len(jl))
@@ -238,62 +261,32 @@ class ACE2005Dataset(Corpus):
 
     def parse_sentence(self, js, fields):
         WORDS = fields["words"]
-        # SENTENCE = fields["sentence"]
-        # POSTAGS = fields["pos-tags"]
-        # LEMMAS = fields["lemma"]
-        # ENTITYLABELS = fields["golden-entity-mentions"]
-        # ADJMATRIX = fields["stanford-colcc"]
+        WLIST = fields["word-list"]
         LABELS = fields["golden-event-mentions"]
         EVENTS = fields["all-events"]
         ENTITIES = fields["all-entities"]
 
         sentence = Sentence(json_content=js)
+
+        ex = Example()
+
+        setattr(ex, WORDS[0], WORDS[1].preprocess(sentence.sentence))
+        setattr(ex, WLIST[0], WLIST[1].preprocess(sentence.wordList))
+        setattr(ex, LABELS[0], LABELS[1].preprocess(sentence.triggerLabelList))
+        setattr(ex, EVENTS[0], EVENTS[1].preprocess(sentence.events))
+        setattr(ex, ENTITIES[0], ENTITIES[1].preprocess(sentence.entities))
         
-        exs = []
         if self.keep_events is not None:
             # 事件不足
             if self.only_keep and sentence.containsEvents != self.keep_events:
-                return exs
+                return None
             elif not self.only_keep and sentence.containsEvents < self.keep_events:
-                return exs
+                return None
             elif self.min_len is not None and sentence.word_len < self.min_len:
                 if sentence.containsEvents == 0:
-                    return exs
+                    return None
 
-        # 现在只对ar做分类，如果没有事件就取消
-        if sentence.containsEvents == 0:
-            return exs
-
-        for e_k, e_v in sentence.events.items():
-            _ar_keys = {}
-            trigger = sentence.wordList[e_k[0]]
-            # 生成ar key表
-            for ae in e_v:
-                ae_s, ae_e, ae_label = ae
-                _ar_keys[(ae_s, ae_e)] = ae_label
-            
-            # 遍历所有实体
-            for ent in sentence.entities:
-                ent_s, ent_e, _ = ent
-                # 实体
-                entity = " ".join(sentence.wordList[ent_s:ent_e])
-                role = "OTHER"
-                # 实体在列表里
-                if (ent_s, ent_e) in _ar_keys.keys():
-                    role = _ar_keys[(ent_s, ent_e)]
-                
-                # 添加进exs
-                ex = Example()
-                text = " ".join([sentence.sentence, trigger, "[SEP]", entity, "[SEP]"])
-                
-                setattr(ex, WORDS[0], WORDS[1].preprocess(text))
-                setattr(ex, LABELS[0], LABELS[1].preprocess(role))
-                setattr(ex, EVENTS[0], EVENTS[1].preprocess(sentence.events))
-                setattr(ex, ENTITIES[0], ENTITIES[1].preprocess(sentence.entities))
-
-                exs.append(ex)
-                
-        return exs
-
+        return ex
+    
     def longest(self):
         return max([len(x.WORDS) for x in self.examples])

@@ -24,9 +24,10 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
     optimizer = optimizer_constructor(lr=lr)
 
     for i in range(epochs):
+        parser.writer.add_scalar('train/lr', lr, i)
         # Training Phrase
         print("Epoch", i + 1)
-        training_loss, training_ed_p, training_ed_r, training_ed_f1 = run_over_data(data_iter=train_iter,
+        training_loss, training_ed_f1, training_ae_f1 = run_over_data(data_iter=train_iter,
                                                                      optimizer=optimizer,
                                                                      model=model,
                                                                      need_backward=True,
@@ -44,19 +45,15 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                                                                      back_step=parser.back_step)
         
         print("\nEpoch", i + 1, " training loss: ", training_loss,
-              "\ntraining ed p: ", training_ed_p,
-              " training ed r: ", training_ed_r,
-              " training ed f1: ", training_ed_f1)
+              " training ed f1: ", training_ed_f1,
+              " training ae f1: ", training_ae_f1)
+        
         parser.writer.add_scalar('train/loss', training_loss, i)
-        parser.writer.add_scalar('train/ed/p', training_ed_p, i)
-        parser.writer.add_scalar('train/ed/r', training_ed_r, i)
         parser.writer.add_scalar('train/ed/f1', training_ed_f1, i)
-        # parser.writer.add_scalar('train/ae/p', training_ae_p, i)
-        # parser.writer.add_scalar('train/ae/r', training_ae_r, i)
-        # parser.writer.add_scalar('train/ae/f1', training_ae_f1, i)
+        parser.writer.add_scalar('train/ae/f1', training_ae_f1, i)
 
         # Validation Phrase
-        dev_loss, dev_ed_p, dev_ed_r, dev_ed_f1 = run_over_data(data_iter=dev_iter,
+        dev_loss, dev_ed_f1, dev_ae_f1 = run_over_data(data_iter=dev_iter,
                                                       optimizer=optimizer,
                                                       model=model,
                                                       need_backward=False,
@@ -72,16 +69,14 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                                                       ae_weight = parser.ae_label_weight,
                                                       save_output=False)
         print("\nEpoch", i + 1, " dev loss: ", dev_loss,
-              "\ndev ed p: ", dev_ed_p,
-              " dev ed r: ", dev_ed_r,
-              " dev ed f1: ", dev_ed_f1)
+              "\ndev ed f1: ", dev_ed_f1,
+              " dev ae f1: ", dev_ae_f1)
         parser.writer.add_scalar('dev/loss', dev_loss, i)
-        parser.writer.add_scalar('dev/ed/p', dev_ed_p, i)
-        parser.writer.add_scalar('dev/ed/r', dev_ed_r, i)
         parser.writer.add_scalar('dev/ed/f1', dev_ed_f1, i)
+        parser.writer.add_scalar('dev/ae/f1', dev_ae_f1, i)
 
         # Testing Phrase
-        test_loss, test_ed_p, test_ed_r, test_ed_f1 = run_over_data(data_iter=test_iter,
+        test_loss, test_ed_f1, test_ae_f1 = run_over_data(data_iter=test_iter,
                                                          optimizer=optimizer,
                                                          model=model,
                                                          need_backward=False,
@@ -97,17 +92,15 @@ def train(model, train_set, dev_set, test_set, optimizer_constructor, epochs, te
                                                          ae_weight = parser.ae_label_weight,
                                                          save_output=False)
         print("\nEpoch", i + 1, " test loss: ", test_loss,
-              "\ntest ed p: ", test_ed_p,
-              " test ed r: ", test_ed_r,
-              " test ed f1: ", test_ed_f1)
+              "\ntest ed f1: ", test_ed_f1,
+              " test ae f1: ", test_ae_f1)
         
         parser.writer.add_scalar('test/loss', test_loss, i)
-        parser.writer.add_scalar('test/ed/p', test_ed_p, i)
-        parser.writer.add_scalar('test/ed/r', test_ed_r, i)
         parser.writer.add_scalar('test/ed/f1', test_ed_f1, i)
+        parser.writer.add_scalar('test/ae/f1', test_ae_f1, i)
 
         # Early Stop
-        aim = dev_ed_f1
+        aim = dev_ed_f1 + dev_ae_f1
         # aim = dev_ed_f1
         if scores <= aim:
             scores = aim

@@ -162,38 +162,44 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
         optimizer.zero_grad()
         cnt += 1
 
-        words, x_len = batch.WORDS
+        tokens, x_len = batch.WORDS
+        words = batch.WLIST
+        
         labels = batch.LABEL
-
-        BATCH = words.size()[0]
-        SEQ_LEN = words.size()[1]
+        entities = batch.ENTITIES
         
         # 获取所有 events
-        # events = batch.EVENT
-        # all_events.extend(events)
+        events = batch.EVENT
+        all_events.extend(events)
 
-        words = words.to(device)
+        tokens = tokens.to(tokens)
         x_len = x_len.to(device)
         labels = labels.to(device)
 
         # forward
-        y_, mask = model.forward(words, x_len, labels)
+        trigger_logits, ent_logits, ent_keys \
+            = model.forward(tokens, words, x_len, entities, label_i2s, events)
         
         # calculate loss
-        # Now we just have ar loss
-        loss = model.calculate_loss(y_, labels, weight)
-
-        y__ = torch.max(y_, 1)[1].tolist()
-        y = labels.tolist()
-
-        # add_tokens(words, y, y__, x_len, all_tokens, word_i2s, label_i2s)
-
-        # unpad
-        label_i = [x for x in range(len(label_i2s))]
-        p, r, f1, _ = tester.summary_report(y, y__, label_i2s)
+        loss_ed, trigger = model.calculate_loss_ed(labels, trigger_logits, words, weight)
+        if len(ent_keys) != 0:
+            ae_ = torch.argmax(ent_logits, 1).tolist()
+            loss_ae, events_, ae = model.calculate_loss_ae(events, ent_logits, ent_keys, ae_weight)
+            loss = loss_ed + hyps["loss_alpha"] * loss_ae
+        else:
+            loss = loss_ed
+            ae = []
+            ae_ = []
         
-        ae_y.extend(y)
-        ae_y_.extend(y__)
+        # metrics
+        trigger_ = torch.argmax(trigger_logits, 1).tolist()
+
+        summary = tester.summary_report(trigger, trigger_, ae, ae_, label_i2s, role_i2s)
+        
+        e_y.extend(trigger)
+        e_y_.extend(trigger_)
+        ae_y.extend(ae)
+        ae_y_.extend(ae_)
 
         other_information = ""
 
@@ -204,10 +210,14 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
                     torch.nn.utils.clip_grad_norm_(model.parameters_requires_grad_clipping(), maxnorm)
     
                 optimizer.step()
-                other_information = 'Iter[{}] loss: {:.6f} edP: {:.4f}% edR: {:.4f}% edF1: {:.4f}%'.format(cnt, loss.item(),
-                                                                                                       p * 100.0,
-                                                                                                       r * 100.0,
-                                                                                                       f1 * 100.0)
+                other_information = 'Iter[{}] loss: {:.6f} TI: {:.4f}% TC: {:.4f}% AI: {:.4f}% AC: {:.4f}%'\
+                                        .format(cnt,
+                                                loss.item(),
+                                                summary["t-i"][-1] * 100.0,
+                                                summary["t-c"][-1] * 100.0,
+                                                summary["a-i"][-1] * 100.0,
+                                                summary["a-c"][-1] * 100.0,
+                                                )
                 optimizer.zero_grad()
             else:
                 gc.collect()
@@ -225,8 +235,21 @@ def run_over_data(model, optimizer, data_iter, MAX_STEP, need_backward, tester, 
     #             f.write("\n")
 
     running_loss = running_loss / cnt
-    pp, rr, ff, report = tester.summary_report(ae_y, ae_y_, label_i2s)
-    print(report)
-    # ap, ar, af = tester.calculate_sets(all_events, all_events_)
+    all_summary = tester.summary_report(e_y, e_y_, ae_y, ae_y, label_i2s, role_i2s)
     
-    return running_loss, pp, rr, ff
+    def display(report):
+        d = lambda s: print(s.center(30, "-"))
+        d("")
+        d(" loss : {:.6f} ".format(running_loss))
+        d(" Trigger Identification ")
+        d(" P: {:.6f} R: {:.6f} F1: {:.6f}".format(*all_summary["t-i"]))
+        d(" Trigger Classification ")
+        d(" P: {:.6f} R: {:.6f} F1: {:.6f}".format(*all_summary["t-c"]))
+        d(" Argument Identification ")
+        d(" P: {:.6f} R: {:.6f} F1: {:.6f}".format(*all_summary["a-i"]))
+        d(" Argument Classification ")
+        d(" P: {:.6f} R: {:.6f} F1: {:.6f}".format(*all_summary["a-c"]))
+    
+    display(all_summary)
+    return running_loss, all_summary["t-c"][-1], all_summary["a-c"][-1]
+

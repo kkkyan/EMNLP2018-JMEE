@@ -1,124 +1,70 @@
 from seqeval.metrics import f1_score, precision_score, recall_score
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, precision_recall_fscore_support
+import numpy as np
 
 class EDTester():
     def __init__(self, voc_i2s):
         self.voc_i2s = voc_i2s
         
-    def summary_report(self, y, y_, label_i2s):
-        labels = [x for x in range(len(label_i2s))]
-        report = classification_report(y, y_, labels=labels, target_names=label_i2s, output_dict=True, digits=4)
-        report_string = classification_report(y, y_, labels=labels, target_names=label_i2s, output_dict=False, digits=4)
+    def summary_report(self, trigger, trigger_, ent, ent_, label_i2s, role_i2s, output_dict=True):
+        ret = {}
+        # trigger identification
+        ret["t-i"] = (self._identification(trigger, trigger_))
+        # trigger classification
+        ret["t-c"] = self._classification(trigger, trigger_, label_i2s)
+        # argument identification
+        ret["a-i"] = (self._identification(ent, ent_))
+        # argument classification
+        ret["a-c"] = self._classification(ent, ent_, role_i2s)
         
-        p = report["weighted avg"]["precision"]
-        r = report["weighted avg"]["recall"]
-        f1 = report["weighted avg"]["f1-score"]
+        return ret
+
+    def binarize_label(self, labels):
+        np_labels = np.array(labels)
+        np_labels[np_labels > 0] = 1
         
-        return p, r, f1, report_string
+        return np_labels.tolist()
+    
+    def _identification(self, y_true, y_pred):
+        if len(y_true) == 0:
+            return 0, 0, 0
         
-
-    def calculate_report(self, y, y_, transform=True):
-        '''
-        calculating F1, P, R
-
-        :param y: golden label, list
-        :param y_: model output, list
-        :return:
-        '''
-        if transform:
-            for i in range(len(y)):
-                for j in range(len(y[i])):
-                    y[i][j] = self.voc_i2s[y[i][j]]
-            for i in range(len(y_)):
-                for j in range(len(y_[i])):
-                    y_[i][j] = self.voc_i2s[y_[i][j]]
-        return precision_score(y, y_), recall_score(y, y_), f1_score(y, y_)
-
-    @staticmethod
-    def merge_segments(y):
-        '''
-        :param y:  y是一个BIO序列，标注了事件label
-        :return: segs: segs 是一个字典
-            key => event label start index
-            value => [ed, tt] : ed is event label end index, tt is the event type
-        '''
-        segs = {}
-        tt = ""
-        st, ed = -1, -1
-        for i, x in enumerate(y):
-            # B 开头
-            if x.startswith("B-"):
-                if tt == "":
-                    # 获得事件类型
-                    tt = x[2:]
-                    # 起始位置
-                    st = i
-                else:
-                    # 这个 else 处理了两个 B- 连续的情况
-                    ed = i
-                    segs[st] = (ed, tt)
-                    # 新 B-
-                    tt = x[2:]
-                    st = i
-            # I 开头
-            elif x.startswith("I-"):
-                # 预测出了 I- 却丢了 B-
-                if tt == "":
-                    ''' 源代码， 把第一个I修订成B'''
-                    y[i] = "B" + y[i][1:]
-                    tt = x[2:]
-                    st = i
-                    
-                    ''' 我的处理: 没有遵循BIO就跳过它 '''
-                    pass
-                else:
-                    # 这个 if 属于连续出现I但是后面的I和前面不同
-                    if tt != x[2:]:
-                        ed = i
-                        segs[st] = (ed, tt)
-                        ''' 源代码， 把第一个I修订成B'''
-                        y[i] = "B" + y[i][1:]
-                        tt = x[2:]
-                        st = i
-                        
-                        ''' 我的处理: 没有遵循BIO就跳过它 '''
-            # O 开头
-            else:
-                ed = i
-                if tt != "":
-                    segs[st] = (ed, tt)
-                tt = ""
-
-        # 最后处理一下尾部, 可能有非O结尾的情况
-        if tt != "":
-            segs[st] = (len(y), tt)
-            
-        return segs
-
-    def calculate_sets(self, y, y_):
-        ct, p1, p2 = 0, 0, 0
-        for sent, sent_ in zip(y, y_):
-            for key, value in sent.items():
-                p1 += len(value)
-                if key not in sent_:
-                    continue
-                # matched sentences
-                arguments = value
-                arguments_ = sent_[key]
-
-                ct += len(set(arguments) & set(arguments_))  # count any argument in golden
-                
-                # for item, item_ in zip(arguments, arguments_):
-                #     if item[2] == item_[2]:
-                #         ct += 1
-
-            for key, value in sent_.items():
-                p2 += len(value)
-
-        if ct == 0 or p1 == 0 or p2 == 0:
-            return 0.0, 0.0, 0.0
-        else:
-            p = 1.0 * ct / p2
-            r = 1.0 * ct / p1
-            f1 = 2.0 * p * r / (p + r)
-            return p, r, f1
+        if len(set(y_true)) == 1 and y_true[0] == 0:
+            return 0, 0, 0
+        
+        y_true = self.binarize_label(y_true)
+        y_pred = self.binarize_label(y_pred)
+        p, r, f1, _ = precision_recall_fscore_support(y_true, y_pred, average='binary')
+        
+        return p, r, f1
+    
+    def _classification(self, y_true, y_pred, label_i2s=None, exclude_other=True, output_dict=True):
+        if len(y_true) == 0:
+            return 0, 0, 0
+    
+        if len(set(y_true)) == 1 and y_true[0] == 0:
+            return 0, 0, 0
+        
+        labels = None
+        if label_i2s:
+            labels = [i for i in range(len(label_i2s))]
+            if exclude_other:
+                labels = labels[1:]
+                label_i2s = label_i2s[1:]
+        
+        report = classification_report(y_true, y_pred, digits=4,
+                                       labels=labels, target_names=label_i2s, output_dict=output_dict)
+        
+        if output_dict:
+            p = report["weighted avg"]["precision"]
+            r = report["weighted avg"]["recall"]
+            f = report["weighted avg"]["f1-score"]
+            return p, r, f
+        
+        return report
+    
+    def argument_identification(self, events, events_):
+        pass
+    
+    def argument_classification(self, events, events_, role_i2s):
+        pass

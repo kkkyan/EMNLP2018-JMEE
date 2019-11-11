@@ -11,7 +11,7 @@ from torchtext.data import Field
 from torchtext.vocab import Vectors
 
 from enet import consts
-from enet.corpus.Data import ACE2005Dataset, MultiTokenField, SparseField, EventField, EntityField
+from enet.corpus.Data import ACE2005Dataset, MultiTokenField, SparseField, EventField, EntityField, WordField
 from enet.models.ee import EDModel
 from enet.testing import EDTester
 from enet.training import train
@@ -89,51 +89,52 @@ class EERunner(object):
             return ids
         
         tokenizer = BertTokenizer.from_pretrained("/home/yk/.pytorch_pretrained_bert/bert-base-uncased",
-                                                  never_split=["[CLS]", "[SEP]",  "[unused0]"])
-        WordsField = Field(lower=False, batch_first=True, include_lengths=True,
-                           tokenize=(lambda s: tokenize(s)), pad_token=0, use_vocab=False)
-        LabelField = Field(sequential=False, lower=False, batch_first=True, pad_token=None, unk_token=None)
+                                                  never_split=["[CLS]", "[SEP]"])
+        TokensField = Field(lower=False, batch_first=True, include_lengths=True,
+                           tokenize=(lambda s: tokenize(s)), pad_token=0, unk_token=None, use_vocab=False)
+        WordsField = WordField(lower=False, batch_first=True, use_vocab=False, tokenize=(lambda s: tokenize(s)))
+        TriggerLabelField = Field(lower=False, batch_first=True, pad_token=None, unk_token=None)
         EventsField = EventField(lower=False, batch_first=True)
-        EntitiesField = EntityField(lower=False, batch_first=True, use_vocab=False)
+        EntitiesField = EntityField(lower=False, batch_first=True, use_vocab=False, tokenize=(lambda s:tokenize(s)))
 
         # 这里的 fields 会自动映射 json 文件里的结果
         train_set = ACE2005Dataset(path=self.a.train, min_len=10,
-                                   fields={"words": ("WORDS", WordsField),
-                                           # "sentence": ("SENTENCE", SentenceField),
-                                           "golden-event-mentions": ("LABEL", LabelField),
+                                   fields={"words": ("WORDS", TokensField),
+                                           "word-list": ("WLIST", WordsField),
+                                           "golden-event-mentions": ("LABEL", TriggerLabelField),
                                            "all-events": ("EVENT", EventsField),
                                            "all-entities": ("ENTITIES", EntitiesField)},
                                    keep_events=0)
         
 
         dev_set = ACE2005Dataset(path=self.a.dev,
-                                 fields={"words": ("WORDS", WordsField),
-                                         # "sentence": ("SENTENCE", SentenceField),
-                                         "golden-event-mentions": ("LABEL", LabelField),
+                                 fields={"words": ("WORDS", TokensField),
+                                         "word-list": ("WLIST", WordsField),
+                                         "golden-event-mentions": ("LABEL", TriggerLabelField),
                                          "all-events": ("EVENT", EventsField),
                                          "all-entities": ("ENTITIES", EntitiesField)},
                                  keep_events=0)
 
         
         # WordsField.build_vocab(tokenizer.vocab.keys())
-        LabelField.build_vocab(train_set.LABEL)
+        TriggerLabelField.build_vocab(train_set.LABEL)
         EventsField.build_vocab(train_set.EVENT)
 
-        consts.O_LABEL = LabelField.vocab.stoi["O"]
+        consts.O_LABEL = TriggerLabelField.vocab.stoi["O"]
         # print("O label is", consts.O_LABEL)
         consts.ROLE_O_LABEL = EventsField.vocab.stoi["OTHER"]
         # print("O label for AE is", consts.ROLE_O_LABEL)
         
         test_set = ACE2005Dataset(path=self.a.test,
-                                  fields={"words": ("WORDS", WordsField),
-                                          # "sentence": ("SENTENCE", SentenceField),
-                                          "golden-event-mentions": ("LABEL", LabelField),
+                                  fields={"words": ("WORDS", TokensField),
+                                          "word-list": ("WLIST", WordsField),
+                                          "golden-event-mentions": ("LABEL", TriggerLabelField),
                                           "all-events": ("EVENT", EventsField),
                                           "all-entities": ("ENTITIES", EntitiesField)},
                                   keep_events=0)
 
         # 这里给label加了权重
-        self.a.label_weight = torch.ones([len(LabelField.vocab.itos)]) * self.a.lb_weight
+        self.a.label_weight = torch.ones([len(TriggerLabelField.vocab.itos)]) * self.a.lb_weight
         self.a.label_weight[consts.O_LABEL] = 1.0
         self.a.ae_label_weight = torch.ones([len(EventsField.vocab.itos)]) * self.a.ae_lb_weight
         self.a.ae_label_weight[consts.ROLE_O_LABEL] = 1.0
@@ -143,13 +144,13 @@ class EERunner(object):
         # 词向量大小
         # 事件预测空间
         if "oc" not in self.a.hps:
-            self.a.hps["oc"] = len(LabelField.vocab.itos)
+            self.a.hps["oc"] = len(TriggerLabelField.vocab.itos)
         # 事件种类空间
         if "ae_oc" not in self.a.hps:
             self.a.hps["ae_oc"] = len(EventsField.vocab.itos)
         
         # 评测
-        tester = self.get_tester(LabelField.vocab.itos)
+        tester = self.get_tester(TriggerLabelField.vocab.itos)
 
         if self.a.finetune:
             log('init model from ' + self.a.finetune)
@@ -188,7 +189,7 @@ class EERunner(object):
         log('init complete\n')
 
         self.a.word_i2s = None
-        self.a.label_i2s = LabelField.vocab.itos
+        self.a.label_i2s = TriggerLabelField.vocab.itos
         self.a.role_i2s = EventsField.vocab.itos
         writer = SummaryWriter(os.path.join(self.a.out, "exp"))
         self.a.writer = writer

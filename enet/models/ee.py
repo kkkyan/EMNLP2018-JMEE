@@ -4,6 +4,7 @@ import numpy
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.nn.utils.rnn import pad_sequence
 
 from enet import consts
 from enet.models.DynamicLSTM import DynamicLSTM
@@ -26,7 +27,7 @@ class EDModel(Model):
         self.bert = BertModel.from_pretrained("/home/yk/.pytorch_pretrained_bert/bert-base-uncased")
 
         # Output Linear
-        self.ol = BottledXavierLinear(in_features=4 * hyps["lstm_dim"], out_features=hyps["oc"]).to(device=device)
+        self.ol = BottledXavierLinear(in_features=4 * 768, out_features=hyps["oc"]).to(device=device)
 
         # AE Output Linear
         self.ae_ol = BottledXavierLinear(in_features=4 * 768, out_features=hyps["ae_oc"]).to(device=device)
@@ -41,132 +42,173 @@ class EDModel(Model):
                      for position in positions]  # list of tensors [BATCH_SIZE, SEQ_LEN]
         return positions
 
-    def forward(self, word_sequence, x_len, label):
+    def forward(self, tokens, words, x_len, entities, label_i2s, golden_events):
         '''
             extracting event triggers
         '''
+        SEP = torch.LongTensor([102]).to(self.device)
         
-        BATCH_SIZE = word_sequence.size()[0]
-        SEQ_LEN = word_sequence.size()[1]
+        BATCH_SIZE = tokens.size()[0]
+        SEQ_LEN = tokens.size()[1]
         
-        # Merge embeddings
-        mask = numpy.zeros(shape=word_sequence.size(), dtype=numpy.uint8)
-        segment = numpy.ones(shape=word_sequence.size(), dtype=numpy.uint8)
-        for i in range(word_sequence.size()[0]):
-            s_len = int(x_len[i])
-            mask[i, 0:s_len] = numpy.ones(shape=(s_len), dtype=numpy.uint8)
-        mask = torch.LongTensor(mask).to(self.device)
-        segment = torch.LongTensor(segment).to(self.device)
+        batch_trigger_logits = []
+        batch_trigger_prediction = []
+        # 对 batch 内每个句子进行处理
+        # 比较慢我也莫得办法
+        for b in range(BATCH_SIZE):
+            seqs = []
+            lens = []
+            # 对每一个句子拼凑trigger, 进行预测
+            ts, ws, w_len = tokens[b], words[b], x_len[b]
+            # 每个词
+            for w in ws["_LIST_"]:
+                # 得到token
+                w_tokens = ws[w]
+                wv = torch.LongTensor(w_tokens).to(self.device)
+                # [CLS] sentence [SEP] trigger [SEP]
+                sent_with_trigger = torch.cat([ts[:w_len], wv, SEP], 0)
+                
+                seqs.append(sent_with_trigger)
+                lens.append(sent_with_trigger.size()[0])
+            
+            # 处理完毕，生成padding
+            x_in = pad_sequence(seqs, batch_first=True)
+            # mask
+            mask = numpy.zeros(shape=x_in.size(), dtype=numpy.uint8)
+            segment = numpy.zeros(shape=x_in.size(), dtype=numpy.uint8)
+            for i, l in enumerate(lens):
+                mask[i, 0:l] = numpy.ones(shape=(l), dtype=numpy.uint8)
+            mask = torch.LongTensor(mask).to(self.device)
+            segment = torch.LongTensor(segment).to(self.device)
+            
+            # feed into bert
+            bert_encode_layers = None
+            if self.training:
+                self.bert.train()
+                bert_encode_layers, _ = self.bert(x_in, segment, mask)
+            else:
+                with torch.no_grad():
+                    bert_encode_layers, _ = self.bert(x_in, segment, mask)
+                    
 
-        # feed into bert
-        if self.training:
-            self.bert.train()
-        else:
-            self.bert.eval()
-        
-        bert_encode_layers, _ = self.bert(word_sequence, segment, mask)
-        
-        # concat last 4 layers output
-        h = torch.cat(bert_encode_layers[-4:], 2) # (batch, 4*768)
-        cls = h[:, 0]
-        
-        # prediction
-        logits = self.ae_ol(cls)
-        
-        return logits, mask
-        
-        # # 首先预测 trigger
-        # word_emb = self.wembeddings(word_sequence)
-        # # 候选词 position
-        # positional_sequences = self.get_sentence_positional_feature(BATCH_SIZE, SEQ_LEN )
-        #
-        # # Trigger Prediction
-        # for i in range(SEQ_LEN):
-        #     # concat
-        #     # 预测trigger 的时候没有 event type feature, 候选词也只有一个
-        #     fill_zeros = torch.zeros(positional_sequences[i].size())
-        #     x_in = torch.cat([word_emb,
-        #                       self.psembeddings(positional_sequences[i].to(self.device)),
-        #                       self.psembeddings(fill_zeros.to(self.device)),
-        #                       self.efembeddings(fill_zeros.to(self.device))], 2)
-        #
-        #     # conv
-        #     x, _ = self.bilstm(torch.cat([word_emb, self.psembeddings(positional_sequences[i].to(self.device))], 2),
-        #                        x_len)  # (batch_size, seq_len, d')
-        #
-        #     # gcns
-        #     for i in range(self.hyperparams["gcn_layers"]):
-        #         if self.hyperparams["use_highway"]:
-        #             x = self.gcns[i](x, adj) + self.hws[i](x)  # (batch_size, seq_len, d')
-        #         else:
-        #             x = self.gcns[i](x, adj)
-        #
-        #     # self attention
-        #     xx.append(self.sa(x, mask))  # (batch_size, d')
-        #
-        #
-        # entity_label_emb = self.eembeddings(entity_type_sequence)
-        # x_emb = torch.cat([word_emb, pos_emb, entity_label_emb], 2)  # (batch_size, seq_len, d)
-        #
-        # xx = []
-        #
-        #
-        # # output linear
-        # xx = torch.stack(xx, dim=1)  # (batch_size, seq_len, d')
-        # logits = self.ol(xx)
-        #
-        # ae_logits_key = []
-        # ae_hidden = []
-        # trigger_outputs = torch.max(logits, 2)[1].view(logits.size()[:2])  # (batch_size, seq_len)
-        #
-        # #  在训练时，we should always feed gold event label to ensure that
-        # #            the model can really learn information from dataset rather
-        # #            than fake results generated by model prediction.
-        # for i in range(BATCH_SIZE):
-        #     predicted_event_triggers = None
-        #     if self.training:
-        #         # Here we use golden event label
-        #         predicted_event_triggers = EDTester.merge_segments(
-        #             [label_i2s[x] for x in batch_golden_label[i][:x_len[i]].tolist()])
-        #     else:
-        #         predicted_event_triggers = EDTester.merge_segments(
-        #             [label_i2s[x] for x in trigger_outputs[i][:x_len[i]].tolist()])
-        #
-        #     # 获取所有实体
-        #     golden_entities = batch_golden_entities[i]
-        #     golden_entity_tensors = {}
-        #     for j in range(len(golden_entities)):
-        #         # 实体 start, end, type(type只有冒号前面部分)
-        #         e_st, e_ed, e_type_str = golden_entities[j]
-        #         try:
-        #             # 生成这个实体的 tensor
-        #             golden_entity_tensors[golden_entities[j]] = xx[i, e_st:e_ed, ].sum(dim=0)  # (d')
-        #         except:
-        #             print(xx.size())
-        #             print(e_st, e_ed)
-        #             print(xx[i, e_st:e_ed, ].mean(dim=0).size())
-        #             exit(-1)
-        #
-        #     # 对每个 event 预测 argument
-        #     for st in predicted_event_triggers:
-        #         # 获取event 的 st, end, type
-        #         ed, trigger_type_str = predicted_event_triggers[st]
-        #         # 获取 event 的 tensor
-        #         event_tensor = xx[i, st:ed, ].sum(dim=0)  # (d')
-        #         for j in range(len(golden_entities)):
-        #             # 获取 entity
-        #             e_st, e_ed, e_type_str = golden_entities[j]
-        #             # 获取 entity tensor
-        #             entity_tensor = golden_entity_tensors[golden_entities[j]]
-        #             ae_hidden.append(torch.cat([event_tensor, entity_tensor]))  # (2 * d')
-        #             ae_logits_key.append((i, st, ed, trigger_type_str, e_st, e_ed, e_type_str))
-        #
-        # if len(ae_hidden) != 0:
-        #     ae_hidden = self.ae_ol(torch.stack(ae_hidden, dim=0))  # (B * M events * N entities, 2*d') -> (B * M * N, ae_oc)
 
-        # return logits, mask, ae_hidden, ae_logits_key
+            # concat last 4 layers output
+            h = torch.cat(bert_encode_layers[-4:], 2) # (x_len, 4*768)
+            cls = h[:, 0]
 
-    def calculate_loss_ed(self, logits, mask, label, weight):
+            # trigger prediction
+            trigger_logits = self.ol(cls)
+            
+            # trigger 预测
+            trigger_output = torch.argmax(trigger_logits, -1)
+            
+            # 添加到 batch
+            batch_trigger_logits.extend(trigger_logits)
+            batch_trigger_prediction.append(trigger_output)
+
+        # 整个 batch 的 trigger 预测结果
+        batch_trigger_logits = torch.stack(batch_trigger_logits, dim=0)
+        batch_trigger = pad_sequence(batch_trigger_prediction, batch_first=True, padding_value=-1)  # (batch, seq)
+        
+        #  对role进行预测
+        #  在训练时，we should always feed gold event label to ensure that
+        #            the model can really learn information from dataset rather
+        #            than fake results generated by model prediction.
+        # 取每个batch
+        batch_ent_logits = []
+        batch_ent_keys = []
+        for b in range(BATCH_SIZE):
+            # 句子长度
+            word_dict = words[b]
+            word_list = word_dict['_LIST_']
+            word_len = len(word_list)
+            # trigger seq
+            sents = tokens[b][:x_len[b]]
+            trigger_seq = batch_trigger[b][:word_len]
+            # words
+            # entities
+            ents = entities[b]
+            # golden_events
+            g_events = golden_events[b]
+            
+            # 首先生成事件列表
+            trigger_dict = {}
+            if self.training:
+                # 训练时传入 golden event trigger
+                for e in g_events.keys():
+                    trigger_dict[e[0]] = {
+                        "words": word_list[e[0]],
+                        "type": e[1],
+                        "tokens": torch.LongTensor(word_dict[word_list[e[0]]]).to(self.device)
+                    }
+            else:
+                trigger_index = trigger_seq.nonzero().squeeze().tolist()
+                for i in trigger_index:
+                    trigger_dict[i] = {
+                        "words": word_list[i],
+                        "type": label_i2s[trigger_seq[i]],
+                        "tokens": torch.LongTensor(word_dict[word_list[i]]).to(self.device)
+                    }
+            
+            # 对每个event进行预测 role
+            ent_seqs = []
+            ent_lens = []
+            for i, v in trigger_dict.items():
+                trigger_tokens = v["tokens"]
+                # 将每个 event 与 entity 联合
+                for ent, ent_v in ents.items():
+                    ent_tokens = torch.LongTensor(ent_v["tokens"]).to(self.device)
+                    # [CLS] sentence [SEP] trigger [SEP] entity [SEP]
+                    sent_with_entity = torch.cat([sents, trigger_tokens, SEP, ent_tokens, SEP], 0)
+                    
+                    ent_seqs.append(sent_with_entity)
+                    ent_lens.append(sent_with_entity.size()[0])
+                    
+                    batch_ent_keys.append({
+                        "batch": b,
+                        "trigger": i,
+                        "trigger_type": v["type"],
+                        "entity": ent,
+                    })
+                    
+            if len(ent_seqs) == 0:
+                continue
+                
+            # 处理完毕，生成padding
+            ent_x_in = pad_sequence(ent_seqs, batch_first=True)
+            # mask
+            ent_mask = numpy.zeros(shape=ent_x_in.size(), dtype=numpy.uint8)
+            ent_segment = numpy.zeros(shape=ent_x_in.size(), dtype=numpy.uint8)
+            for i, l in enumerate(ent_lens):
+                ent_mask[i, 0:l] = numpy.ones(shape=(l), dtype=numpy.uint8)
+            ent_mask = torch.LongTensor(ent_mask).to(self.device)
+            ent_segment = torch.LongTensor(ent_segment).to(self.device)
+
+            # feed into bert
+            ent_bert_encode_layers = None
+            if self.training:
+                self.bert.train()
+                ent_bert_encode_layers, _ = self.bert(ent_x_in, ent_segment, ent_mask)
+            else:
+                with torch.no_grad():
+                    ent_bert_encode_layers, _ = self.bert(ent_x_in, ent_segment, ent_mask)
+
+            # concat last 4 layers output
+            ent_h = torch.cat(ent_bert_encode_layers[-4:], 2) # (x_len, 4*768)
+            ent_cls = ent_h[:, 0]
+
+            # trigger prediction
+            ent_logits = self.ae_ol(ent_cls)
+
+            # 添加到 batch
+            batch_ent_logits.extend(ent_logits)
+
+        if len(batch_ent_logits) != 0:
+            batch_ent_logits = torch.stack(batch_ent_logits, dim=0)
+            
+        return batch_trigger_logits, batch_ent_logits, batch_ent_keys
+
+    def calculate_loss_ed(self, label, pred, words, weight):
         '''
         Calculate loss for a batched output of ed
 
@@ -175,27 +217,26 @@ class EDModel(Model):
         :param label: LongTensor, golden label of paadded sequences, (batch_size, seq_len)
         :return: Float, accumulated loss and index
         '''
-        BATCH = logits.size()[0]
-        SEQ_LEN = logits.size()[1]
-        output = logits.view(BATCH * SEQ_LEN, -1)
-        label = label.view(BATCH * SEQ_LEN, -1)
-        mask = mask.view(BATCH * SEQ_LEN, )
-        masked_index = torch.LongTensor([x for x in range(BATCH * SEQ_LEN) if mask[x] == 1]).to(self.device)
-        output_ = output.index_select(0, masked_index)
-        label_ = label.index_select(0, masked_index).squeeze(1)
+        seq_lens = [len(w["_LIST_"]) for w in words]
+        y = []
+        for i, l in enumerate(seq_lens):
+            y.extend(label[i][:l])
+        y = torch.stack(y, dim=0)
+        
         if weight is not None:
             weight = weight.to(self.device)
-            loss = F.nll_loss(F.log_softmax(output_, dim=1), label_, weight=weight)
+            loss = F.nll_loss(F.log_softmax(pred, dim=1), y, weight=weight)
         else:
-            loss = F.nll_loss(F.log_softmax(output_, dim=1), label_)
-        return loss
+            loss = F.nll_loss(F.log_softmax(pred, dim=1), y)
+            
+        return loss, y.tolist()
 
-    def calculate_loss_ae(self, logits, keys, batch_golden_events, BATCH_SIZE, weight):
+    def calculate_loss_ae(self, golden_events, pred, keys, weight):
         '''
         Calculate loss for a batched output of ae
 
         :param logits: FloatTensor, (N, output_class)
-        :param keys: [(i, st, ed, trigger_type_str, e_st, e_ed, e_type_str), ...]
+        :param keys: [{ batch, trigger, trigger_type, entity }, ...]
         :param batch_golden_events:
         [
             {
@@ -217,36 +258,46 @@ class EDModel(Model):
         # print(batch_golden_events)
         golden_labels = []
         # keys 是所有预测出来的argument
-        for i, st, ed, event_type_str, e_st, e_ed, entity_type in keys:
+        for k in keys:
             label = consts.ROLE_O_LABEL
+            
+            batch = k["batch"]
+            trigger_index = k["trigger"]
+            trigger_type = k["trigger_type"]
+            entity = k["entity"]
+            
             # 如果预测出来的在golden event里
-            if (st, ed, event_type_str) in batch_golden_events[i]:  # if event matched
-                for e_st_, e_ed_, r_label in batch_golden_events[i][(st, ed, event_type_str)]:
-                    if e_st == e_st_ and e_ed == e_ed_:
-                        label = r_label
+            if (trigger_index, trigger_type) in golden_events[batch]:  # if event matched
+                golden_ents = golden_events[batch][(trigger_index, trigger_type)]
+                # 找到对应label
+                for ent in golden_ents:
+                    if entity in ent:
+                        label = ent[-1]
                         break
             golden_labels.append(label)
+            
         golden_labels = torch.LongTensor(golden_labels).to(self.device)
         if weight is not None:
             weight = weight.to(self.device)
-            loss = F.nll_loss(F.log_softmax(logits, dim=1), golden_labels, weight=weight)
+            loss = F.nll_loss(F.log_softmax(pred, dim=1), golden_labels, weight=weight)
         else:
-            loss = F.nll_loss(F.log_softmax(logits, dim=1), golden_labels)
+            loss = F.nll_loss(F.log_softmax(pred, dim=1), golden_labels)
 
-        predicted_events = [{} for _ in range(BATCH_SIZE)]
-        output_ae = torch.max(logits, 1)[1].view(golden_labels.size()).tolist()
-        for (i, st, ed, event_type_str, e_st, e_ed, entity_type), ae_label in zip(keys, output_ae):
-            if ae_label == consts.ROLE_O_LABEL: continue
-            if (st, ed, event_type_str) not in predicted_events[i]:
-                predicted_events[i][(st, ed, event_type_str)] = []
-            predicted_events[i][(st, ed, event_type_str)].append((e_st, e_ed, ae_label))
+        # 将预测的结果结构化
+        predicted_events = [{} for _ in range(len(golden_events))]
+        output_ae = torch.max(pred, 1)[1].tolist()
+        for k, ae_label in zip(keys, output_ae):
+            batch = k["batch"]
+            trigger_index = k["trigger"]
+            trigger_type = k["trigger_type"]
+            entity = k["entity"]
+            
+            if ae_label == consts.ROLE_O_LABEL:
+                continue
+                
+            if (trigger_index, trigger_type) not in predicted_events[batch]:
+                predicted_events[batch][(trigger_index, trigger_type)] = []
 
-        return loss, predicted_events
-    
-    def calculate_loss(self, logits, label, weight):
-        if weight is not None:
-            weight = weight.to(self.device)
-            loss = F.nll_loss(F.log_softmax(logits), label, weight=weight)
-        else:
-            loss = F.nll_loss(F.log_softmax(logits), label)
-        return loss
+            predicted_events[batch][(trigger_index, trigger_type)].append((entity, ae_label))
+
+        return loss, predicted_events, golden_labels.tolist()
