@@ -37,6 +37,7 @@ class EERunner(object):
         parser.add_argument("--lr", default=0.5, type=float)
         parser.add_argument("--l2decay", default=1e-5, type=float)
         parser.add_argument("--maxnorm", default=3, type=float)
+        parser.add_argument("--keep_event", default=0, type=int)
 
         parser.add_argument("--out", help="output model path", default="out")
         parser.add_argument("--finetune", help="pretrained model path")
@@ -104,8 +105,7 @@ class EERunner(object):
                                            "golden-event-mentions": ("LABEL", TriggerLabelField),
                                            "all-events": ("EVENT", EventsField),
                                            "all-entities": ("ENTITIES", EntitiesField)},
-                                   keep_events=0)
-        
+                                   keep_events=self.a.keep_event)
 
         dev_set = ACE2005Dataset(path=self.a.dev,
                                  fields={"words": ("WORDS", TokensField),
